@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: jarvis_postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jarvis_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis_password}
+      POSTGRES_DB: ${POSTGRES_DB:-jarvis_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jarvis_user} -d ${POSTGRES_DB:-jarvis_db}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis_bot_app
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-jarvis_user}:${POSTGRES_PASSWORD:-jarvis_password}@db:5432/${POSTGRES_DB:-jarvis_db}
+    volumes:
+      - ./credentials:/app/credentials
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local

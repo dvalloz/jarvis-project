@@ -1,0 +1,71 @@
+# ==========================================
+# Entornos Virtuales y Dependencias (Python)
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================================
+# Credenciales y Secretos (¡IMPORTANTE!)
+# ==========================================
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Archivos de credenciales de Google y llaves API
+credentials/*
+!credentials/.gitkeep
+*.pem
+*.key
+*.p12
+*.crt
+
+# ==========================================
+# Bases de datos y almacenamiento local
+# ==========================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# Logs y Archivos Temporales
+# ==========================================
+*.log
+logs/
+*.tmp
+*.bak
+*.swp
+
+# ==========================================
+# Pruebas y Cobertura
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# Editores de código y Sistema Operativo
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema Operativo (Windows / macOS)
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
