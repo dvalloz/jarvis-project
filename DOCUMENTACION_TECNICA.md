@@ -225,7 +225,7 @@ Contiene la función `run_agent(user_message)`:
 - Envía el historial y el array de herramientas `TOOLS_SCHEMA` a Groq API (`qwen/qwen3.6-27b`).
 - Si el modelo emite `tool_calls` estándar o bloques `<tool_call>` en formato XML, los ejecuta llamando a `execute_tool_call()`.
 - Realiza hasta 6 iteraciones en bucle para que el modelo pueda encadenar varias llamadas si fuera necesario.
-- Pasa el resultado final por `clean_think_tags()` para garantizar que la respuesta entregada al usuario sea pulida y limpia.
+- Pasa el resultado final por `clean_think_tags()` para garantizar que la respuesta entregada al usuario sea pulida y limpia, registrando advertencias (`logger.warning`) si el texto recibido del modelo es nulo o queda vacío tras filtrar llamadas internas a herramientas.
 
 ---
 
@@ -254,7 +254,7 @@ Contiene la función `run_agent(user_message)`:
 
 Almacena los trabajos programados con `APScheduler`:
 1. **`deadline_checker_job` (cada 15 minutos)**: Evalúa tareas próximas a su vencimiento y envía recordatorios aislados con botón `[✅ Marcar como hecha]`.
-2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar, gimnasio y estado de la pastilla.
+2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar, gimnasio y estado de la pastilla. Incorpora un bucle de reintentos (hasta 3 intentos), instrucción anti-tool-call y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad incluso ante caídas de la API del LLM.
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).
@@ -323,6 +323,10 @@ La función `build_spotify_status_and_keyboard()` construye el mensaje con el de
 1. **Inmunidad a Timeouts de Red:** `main.py` configura `connect_timeout=30.0` y `read_timeout=30.0`.
 2. **Bootstrapping Infinito:** `application.run_polling(bootstrap_retries=-1)` evita que la aplicación se cierre si hay cortes de conexión con los servidores de Telegram en el arranque.
 3. **Manejadores Seguros:** Las acciones de interfaz (como enviar la animación *"typing"*) se envuelven en `safe_send_typing` para que una caída de red secundaria no aborte la ejecución principal.
+4. **Resiliencia y Redundancia del Briefing Matutino:**
+   - **Reintentos Inteligentes:** `morning_briefing_job` ejecuta un bucle de hasta 3 intentos con pausas de 2 segundos si el LLM devuelve respuestas vacías, erróneas o la frase genérica por defecto.
+   - **Instrucción Anti-Tool-Call:** El prompt enviado en el briefing fuerza al LLM a no realizar llamadas a herramientas ya que toda la información se le pasa precargada.
+   - **Fallback Determinista en Python (`format_fallback_morning_briefing`):** Si la API del LLM falla tras 3 intentos, el sistema compone automáticamente el briefing formateado en Markdown usando los datos reales recopilados (tiempo, noticias, Google Calendar, rutina de gym, tareas y pastilla), garantizando una disponibilidad del 100%.
 
 ---
 
