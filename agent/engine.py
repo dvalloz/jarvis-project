@@ -48,11 +48,15 @@ else:
 def clean_think_tags(text: str) -> str:
     """Elimina etiquetas de razonamiento interno (<think>) y monólogos de planificación de forma segura."""
     if not text or not text.strip():
+        logger.warning("clean_think_tags: El texto recibido de la IA está vacío o nulo.")
         return "📅 Resumen procesado correctamente."
 
     # 1. Eliminar bloques <tool_call>...</tool_call>
     cleaned = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL).strip()
-    
+    if not cleaned:
+        logger.warning("clean_think_tags: El texto solo contenía bloques <tool_call> y quedó vacío.")
+        return "📅 Resumen procesado correctamente."
+
     # 2. Si no hay <think>, devolver directamente
     if "<think>" not in cleaned:
         return cleaned.strip()

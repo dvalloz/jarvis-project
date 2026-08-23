@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import asyncio
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pytz import timezone
@@ -89,6 +90,66 @@ async def deadline_checker_job(app):
                     parse_mode="Markdown"
                 )
 
+def format_fallback_morning_briefing(
+    today: date,
+    is_monday: bool,
+    weather: dict,
+    news: list,
+    events: list,
+    workout,
+    deadline_tasks: list,
+    pill_taken: bool
+) -> str:
+    """Genera un briefing matutino estructurado en Python como respaldo garantizado cuando la IA no responde."""
+    lines = []
+
+    # 1. El Tiempo
+    weather_summary = weather.get("summary", "Sin previsión disponible") if isinstance(weather, dict) else str(weather)
+    lines.append(f"🌤️ **El Tiempo hoy**\n{weather_summary}")
+
+    # 2. Noticias
+    lines.append("\n📰 **Noticias Destacadas del Día**")
+    if news and isinstance(news, list):
+        for item in news[:3]:
+            source = item.get("source", "Noticia")
+            title = item.get("title", "")
+            link = item.get("link", "")
+            if link:
+                lines.append(f"• [{source}]({link}) {title}")
+            else:
+                lines.append(f"• **{source}:** {title}")
+    else:
+        lines.append("• No hay noticias disponibles en este momento.")
+
+    # 3. Agenda
+    header_cal = "📅 **Agenda completa de esta semana**" if is_monday else "📅 **Agenda de hoy**"
+    lines.append(f"\n{header_cal}")
+    if events and isinstance(events, list) and not events[0].get("error"):
+        for ev in events:
+            summary = ev.get("summary", ev.get("title", "Evento"))
+            start = ev.get("start", "")
+            lines.append(f"• {start} - {summary}".strip(" -"))
+    else:
+        lines.append("• Sin eventos programados para hoy. ¡Qué aproveche el descanso! 🧘")
+
+    # 4. Tareas con plazo
+    lines.append("\n⏳ **Tareas con Plazo Pendientes**")
+    if deadline_tasks:
+        for dt in deadline_tasks:
+            deadline_str = dt.deadline.strftime("%d/%m %H:%M")
+            lines.append(f"• {dt.title} 📦 → {deadline_str}")
+    else:
+        lines.append("• Sin tareas pendientes con fecha límite.")
+
+    # 5. Gimnasio y Pastilla
+    workout_str = f"{workout.name} ({workout.target_muscles})" if workout else "Descanso / No definida"
+    pill_str = "Ya tomada ✅" if pill_taken else "Pendiente por tomar ⚠️"
+    lines.append(f"\n🏋️ **Rutina Sugerida:** {workout_str}")
+    lines.append(f"💊 **Estado Pastilla:** {pill_str}")
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------
 # 07:30 AM - BRIEFING MATUTINO Y RECORDATORIO PASTILLA
 # ---------------------------------------------------------
@@ -127,9 +188,40 @@ Genera un Briefing Matutino conciso, visual y bien estructurado para Telegram:
 - Rutina de gimnasio sugerida: {workout.name if workout else 'Descanso / No definida'} ({workout.target_muscles if workout else ''})
 - Tareas con plazo límite pendientes: {[{'id': dt.id, 'title': dt.title, 'deadline': dt.deadline.strftime('%d/%m %H:%M')} for dt in deadline_tasks]}
 - Estado Pastilla: {'Ya tomada' if pill_taken else 'Pendiente por tomar'}
+
+NOTA IMPORTANTE:
+Toda la información necesaria ya te ha sido proporcionada en esta consulta. NO invoques ninguna herramienta ni función. Sintetiza directamente la respuesta final para el usuario.
 """
 
-    summary = await run_agent(prompt)
+    summary = None
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            res = await run_agent(prompt)
+            if res and res.strip() and res.strip() != "📅 Resumen procesado correctamente." and not res.strip().startswith("⚠️"):
+                summary = res
+                logger.info(f"Briefing Matutino generado con éxito por la IA en el intento {attempt}.")
+                break
+            else:
+                logger.warning(f"Intento {attempt}/{max_retries}: La IA devolvió una respuesta no válida o genérica ('{res}'). Reintentando...")
+        except Exception as err:
+            logger.warning(f"Intento {attempt}/{max_retries}: Error llamando a run_agent en briefing: {err}")
+        
+        if attempt < max_retries:
+            await asyncio.sleep(2)
+
+    if not summary:
+        logger.error("Todos los intentos con la IA fallaron. Usando plantilla de respaldo en Python para el Briefing Matutino.")
+        summary = format_fallback_morning_briefing(
+            today=today,
+            is_monday=is_monday,
+            weather=weather,
+            news=news,
+            events=events,
+            workout=workout,
+            deadline_tasks=deadline_tasks,
+            pill_taken=pill_taken
+        )
 
     message_text = f"☀️ **BRIEFING MATUTINO (07:30 AM)**\n\n{summary}"
 
