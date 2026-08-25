@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from config.settings import settings
 from tools.registry import TOOLS_SCHEMA
 from tools.news_weather_tools import get_top_news, get_weather_forecast
-from tools.calendar_tools import get_day_events, get_week_events, create_calendar_event
+from tools.calendar_tools import get_day_events_async, get_week_events_async, create_calendar_event_async
 from tools.workout_tools import (
     get_next_workout_tool,
     log_climbing_tool,
@@ -32,12 +32,12 @@ logger = logging.getLogger(__name__)
 is_groq = settings.groq_api_key and settings.groq_api_key.startswith("gsk_")
 
 if is_groq:
-    logger.info("Usando motor Groq API con fallback multimodelo (Qwen 27B / GPT-OSS 120B / GPT-OSS 20B)...")
+    logger.info("Usando motor Groq API con fallback multimodelo (Llama 3.3 70B / Qwen 2.5 32B / Llama 3.1 8B)...")
     client = AsyncOpenAI(
         api_key=settings.groq_api_key,
         base_url="https://api.groq.com/openai/v1"
     )
-    MODELS_TO_TRY = ["qwen/qwen3.6-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    MODELS_TO_TRY = ["llama-3.3-70b-versatile", "qwen-2.5-32b", "llama-3.1-8b-instant"]
 else:
     logger.info("Usando motor OpenAI API (gpt-4o-mini)...")
     client = AsyncOpenAI(
@@ -46,32 +46,32 @@ else:
     MODELS_TO_TRY = ["gpt-4o-mini"]
 
 def clean_think_tags(text: str) -> str:
-    """Elimina etiquetas de razonamiento interno (<think>) y monólogos de planificación de forma segura."""
-    if not text or not text.strip():
-        logger.warning("clean_think_tags: El texto recibido de la IA está vacío o nulo.")
-        return "📅 Resumen procesado correctamente."
+    """Elimina etiquetas de razonamiento interno (<think>) y bloques <tool_call> manteniendo el contenido real."""
+    if not text or not str(text).strip():
+        return ""
+
+    text = str(text).strip()
 
     # 1. Eliminar bloques <tool_call>...</tool_call>
     cleaned = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL).strip()
     if not cleaned:
-        logger.warning("clean_think_tags: El texto solo contenía bloques <tool_call> y quedó vacío.")
-        return "📅 Resumen procesado correctamente."
+        return ""
 
     # 2. Si no hay <think>, devolver directamente
     if "<think>" not in cleaned:
-        return cleaned.strip()
+        return cleaned
 
     # 3. Intentar quitar <think>...</think> si hay texto fuera
     without_think = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL).strip()
     if without_think:
         return without_think
 
-    # 4. Si todo el texto está dentro de <think>, extraer el contenido
+    # 4. Si todo el texto está dentro de <think>...</think>, extraer el contenido
     inside_match = re.search(r'<think>(.*?)</think>', cleaned, flags=re.DOTALL)
     inside_text = inside_match.group(1).strip() if inside_match else cleaned
 
     # Buscar la primera ocurrencia de un saludo, emoji típico o sección formateada
-    pattern = r'(\n(?:👋|🌤️|📰|📅|💊|⏳|🏋️|🎵|\*\*|#|👥|⚠️).*)$'
+    pattern = r'(?:^|\n)((?:👋|☀️|🌤️|📰|📅|💊|⏳|🏋️|🎵|\*\*|#|👥|⚠️|[0-9]+\.\s*(?:👋|☀️|🌤️|📰|📅|💊|⏳|🏋️|🎵|\*\*)).*)$'
     match = re.search(pattern, inside_text, flags=re.DOTALL)
 
     if match:
@@ -80,17 +80,23 @@ def clean_think_tags(text: str) -> str:
             result = result[:-8].strip()
         return result
 
-    # Si no se encuentra patrón, buscar líneas que no parezcan monólogo técnico
+    # Si no se encuentra patrón, descartar únicamente líneas de pensamiento evidentes
     lines = inside_text.split('\n')
     filtered_lines = []
     in_draft = False
 
+    planning_prefixes = (
+        "Here's a thinking", "Thinking Process:", "Okay, I need to",
+        "Analyze User Input", "Draft:", "Structure:", "El usuario quiere",
+        "Pasos siguientes:", "Let's structure", "Let's check"
+    )
+
     for line in lines:
         l_str = line.strip()
         if not in_draft:
-            if l_str.startswith(("Here's a thinking", "1.", "2.", "3.", "4.", "5.", "- **", "Analyze User Input", "Draft:", "Structure:", "El usuario quiere", "Pasos siguientes:")):
+            if any(l_str.startswith(p) for p in planning_prefixes):
                 continue
-            if l_str and not l_str.startswith(("Here", "Analyze", "Refine", "Check", "Draft", "Structure")):
+            if l_str:
                 in_draft = True
                 filtered_lines.append(line)
         else:
@@ -140,12 +146,12 @@ async def execute_tool_call(function_name: str, args: dict) -> str:
 
     if function_name == "get_calendar_events":
         date_str = args.get("date_str")
-        events = get_day_events(date_str)
+        events = await get_day_events_async(date_str)
         return json.dumps(events, ensure_ascii=False)
 
     elif function_name == "get_weekly_calendar_events":
         date_str = args.get("date_str")
-        events = get_week_events(date_str)
+        events = await get_week_events_async(date_str)
         return json.dumps(events, ensure_ascii=False)
 
     elif function_name == "create_calendar_event":
@@ -153,7 +159,7 @@ async def execute_tool_call(function_name: str, args: dict) -> str:
         start_iso = args.get("start_iso")
         end_iso = args.get("end_iso")
         description = args.get("description", "")
-        link = create_calendar_event(summary, start_iso, end_iso, description)
+        link = await create_calendar_event_async(summary, start_iso, end_iso, description)
         return f"Evento creado con éxito en Google Calendar. Enlace: {link}"
 
     elif function_name == "get_next_workout":
@@ -229,7 +235,12 @@ async def execute_tool_call(function_name: str, args: dict) -> str:
     return f"Herramienta '{function_name}' desconocida."
 
 
-async def run_agent(user_message: str) -> str:
+async def run_agent(user_message: str, enable_tools: bool = True) -> str:
+    """
+    Ejecuta el agente de IA.
+    Si enable_tools es False, sintetiza directamente el texto sin adjuntar el esquema de herramientas,
+    evitando llamadas innecesarias o vacías cuando los datos ya se han proporcionado en el prompt.
+    """
     try:
         system_prompt = get_system_prompt()
         messages = [
@@ -237,7 +248,7 @@ async def run_agent(user_message: str) -> str:
             {"role": "user", "content": user_message}
         ]
 
-        max_turns = 6
+        max_turns = 6 if enable_tools else 1
         for turn in range(max_turns):
             response = None
             last_exception = None
@@ -250,7 +261,7 @@ async def run_agent(user_message: str) -> str:
                         "messages": messages,
                         "max_tokens": 1500
                     }
-                    if TOOLS_SCHEMA:
+                    if enable_tools and TOOLS_SCHEMA:
                         kwargs["tools"] = TOOLS_SCHEMA
                         kwargs["tool_choice"] = "auto"
 
@@ -271,12 +282,13 @@ async def run_agent(user_message: str) -> str:
                 return "⚠️ No se pudo obtener respuesta de la IA en este momento."
 
             response_message = response.choices[0].message
-            tool_calls = response_message.tool_calls
+            tool_calls = response_message.tool_calls if enable_tools else None
             raw_content = response_message.content or ""
-            xml_calls = parse_xml_tool_calls(raw_content)
+            xml_calls = parse_xml_tool_calls(raw_content) if enable_tools else []
 
             if not tool_calls and not xml_calls:
-                return clean_think_tags(raw_content)
+                cleaned_result = clean_think_tags(raw_content)
+                return cleaned_result if cleaned_result else raw_content.strip()
 
             if tool_calls:
                 messages.append(response_message)
@@ -304,8 +316,10 @@ async def run_agent(user_message: str) -> str:
                     })
 
         last_msg = messages[-1].get("content", "")
-        return clean_think_tags(last_msg)
+        cleaned_last = clean_think_tags(last_msg)
+        return cleaned_last if cleaned_last else last_msg.strip()
 
     except Exception as e:
         logger.error(f"Error en run_agent: {e}")
         return f"⚠️ Lo siento, ha ocurrido un error al procesar tu solicitud: {str(e)}"
+

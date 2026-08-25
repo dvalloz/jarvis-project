@@ -221,18 +221,19 @@ Genera el **System Prompt dinámico** entregado al modelo en cada petición:
 - Aplica reglas estrictas de formato (español castellano, emojis, prohibición absoluta de monólogos de planificación interna).
 
 #### `agent/engine.py`
-Contiene la función `run_agent(user_message)`:
-- Envía el historial y el array de herramientas `TOOLS_SCHEMA` a Groq API (`qwen/qwen3.6-27b`).
-- Si el modelo emite `tool_calls` estándar o bloques `<tool_call>` en formato XML, los ejecuta llamando a `execute_tool_call()`.
-- Realiza hasta 6 iteraciones en bucle para que el modelo pueda encadenar varias llamadas si fuera necesario.
-- Pasa el resultado final por `clean_think_tags()` para garantizar que la respuesta entregada al usuario sea pulida y limpia, registrando advertencias (`logger.warning`) si el texto recibido del modelo es nulo o queda vacío tras filtrar llamadas internas a herramientas.
+Contiene la función `run_agent(user_message, enable_tools=True)`:
+- Envía el historial a Groq API con fallback dinámico multimodelo (`llama-3.3-70b-versatile`, `qwen-2.5-32b`, `llama-3.1-8b-instant`).
+- Si `enable_tools=True`, adjunta `TOOLS_SCHEMA` y ejecuta las herramientas solicitadas (`tool_calls` o XML `<tool_call>`) llamando a `execute_tool_call()`.
+- Si `enable_tools=False` (usado para síntesis del Briefing Matutino y `/hoy`), no adjunta herramientas para evitar llamadas innecesarias o vacías cuando los datos ya se encuentran en el prompt.
+- Realiza hasta 6 iteraciones en bucle para encadenar llamadas si fuera necesario.
+- Pasa el resultado final por `clean_think_tags()` para eliminar de forma segura monólogos internos `<think>` y bloques `<tool_call>` sin descartar listas numeradas ni viñetas.
 
 ---
 
 ### 4.4 Catálogo y Ejecución de Herramientas (`tools/`)
 
 - **`tools/registry.py`**: Define la lista `TOOLS_SCHEMA` compatible con OpenAPI / JSON Schema conteniendo las 16 herramientas expuestas al LLM.
-- **`tools/calendar_tools.py`**: Conecta con Google Calendar mediante OAuth2 (`credentials/token.json` y `credentials/credentials.json`) para consultar eventos del día o de la semana completa y crear nuevas citas.
+- **`tools/calendar_tools.py`**: Conecta con Google Calendar mediante OAuth2 (`credentials/token.json` y `credentials/credentials.json`) para consultar eventos del día o de la semana completa y crear nuevas citas. Incorpora wrappers asíncronos no bloqueantes (`get_day_events_async`, `get_week_events_async`, `create_calendar_event_async`) mediante `asyncio.to_thread` para preservar la reactividad del event loop de Telegram.
 - **`tools/news_weather_tools.py`**:
   - `get_weather_forecast()`: Consulta la API gratuita de Open-Meteo para obtener la predicción del día en Madrid (temperatura máxima, mínima, probabilidad de lluvia y código de estado WMO con emoji).
   - `get_top_news()`: Descarga y parsea el feed XML/RSS oficial de Google News España para obtener las 2-3 noticias principales del día con su título y fuente.
@@ -244,8 +245,9 @@ Contiene la función `run_agent(user_message)`:
 
 - **`@restricted`**: Decorador de seguridad que comprueba si el `user_id` de Telegram coincide con el configurado en `.env`. Si no coincide, rechaza la petición y la registra en logs.
 - **`safe_send_typing(chat)`**: Envía la acción visual de *"escribiendo..."* capturando excepciones de red para evitar caídas en caso de picos de latencia.
+- **`safe_edit_message_text(query, text, reply_markup)`**: Manejador seguro para edición de mensajes inline con captura de errores de Markdown y excepciones de mensaje no modificado.
 - **`build_spotify_status_and_keyboard(tracker)`**: Genera el texto con el estado del cobro del Spotify de Ruben, Victoriano, Miquel y Joan, creando **botones táctiles únicamente para los amigos pendientes de pago**.
-- **`generate_hoy_summary()`**: Función optimizada que recopila todos los datos en 1ms (Weather, Noticias, BD, Calendar) y llama al motor de IA en una única consulta directa para responder en ~2 segundos.
+- **`generate_hoy_summary()`**: Función optimizada que recopila todos los datos de forma no bloqueante (Weather, Noticias, BD, Calendar asíncrono) y llama al motor de IA con `enable_tools=False`. Si la IA falla, recurre a `format_fallback_hoy_summary()` para garantizar entrega al instante.
 - **`global_error_handler`**: Captura errores de red no controlados a nivel global en la aplicación.
 
 ---
@@ -254,7 +256,7 @@ Contiene la función `run_agent(user_message)`:
 
 Almacena los trabajos programados con `APScheduler`:
 1. **`deadline_checker_job` (cada 15 minutos)**: Evalúa tareas próximas a su vencimiento y envía recordatorios aislados con botón `[✅ Marcar como hecha]`.
-2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar, gimnasio y estado de la pastilla. Incorpora un bucle de reintentos (hasta 3 intentos), instrucción anti-tool-call y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad incluso ante caídas de la API del LLM.
+2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar (no bloqueante), gimnasio y estado de la pastilla. Incorpora un bucle de reintentos (hasta 3 intentos), invocación con `enable_tools=False` y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad.
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).

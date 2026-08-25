@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from datetime import datetime, date, timedelta
 import pytz
@@ -131,3 +132,15 @@ def create_calendar_event(summary: str, start_iso: str, end_iso: str, descriptio
     }
     created_event = service.events().insert(calendarId='primary', body=event_body).execute()
     return created_event.get('htmlLink')
+
+async def get_day_events_async(target_date: date):
+    """Wrapper asíncrono no bloqueante para get_day_events usando un hilo separado."""
+    return await asyncio.to_thread(get_day_events, target_date)
+
+async def get_week_events_async(start_date: date):
+    """Wrapper asíncrono no bloqueante para get_week_events usando un hilo separado."""
+    return await asyncio.to_thread(get_week_events, start_date)
+
+async def create_calendar_event_async(summary: str, start_iso: str, end_iso: str, description: str = ""):
+    """Wrapper asíncrono no bloqueante para create_calendar_event usando un hilo separado."""
+    return await asyncio.to_thread(create_calendar_event, summary, start_iso, end_iso, description)

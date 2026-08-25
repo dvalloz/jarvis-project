@@ -1,6 +1,6 @@
 from functools import wraps
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
@@ -13,7 +13,7 @@ from database.crud import (
     get_or_create_spotify_tracker, update_spotify_friend_payment, log_activity_by_name,
     get_pending_deadline_tasks, mark_deadline_task_completed
 )
-from tools.calendar_tools import get_day_events
+from tools.calendar_tools import get_day_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ DIAS_SEMANA_ES = {
     "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo"
 }
 
-def get_today_local() -> datetime.date:
+def get_today_local() -> date:
     """Devuelve la fecha actual garantizando la zona horaria Europe/Madrid."""
     tz = pytz.timezone(settings.timezone)
     return datetime.now(tz).date()
@@ -50,6 +50,23 @@ async def safe_reply_text(message, text: str, reply_markup=None):
             await message.reply_text(text, reply_markup=reply_markup)
         except Exception as e2:
             logger.error(f"Error definitivo enviando mensaje de texto: {e2}")
+
+async def safe_edit_message_text(query, text: str, reply_markup=None):
+    """Edita un mensaje de forma segura atrapando posibles errores de Markdown o 'Message is not modified'."""
+    if not text or not text.strip():
+        text = "✅ Acción registrada correctamente."
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+    except Exception as e:
+        err_msg = str(e)
+        if "Message is not modified" in err_msg:
+            logger.debug("safe_edit_message_text: El mensaje no ha cambiado.")
+            return
+        logger.warning(f"Error editando mensaje con parse_mode Markdown: {e}. Reintentando sin formato...")
+        try:
+            await query.edit_message_text(text, reply_markup=reply_markup)
+        except Exception as e2:
+            logger.error(f"Error definitivo editando mensaje de callback: {e2}")
 
 def restricted(func):
     @wraps(func)
@@ -114,6 +131,57 @@ def build_spotify_status_and_keyboard(tracker) -> tuple[str, list]:
     return text, keyboard
 
 
+def format_fallback_hoy_summary(
+    today: date,
+    day_es: str,
+    weather: dict,
+    news: list,
+    events: list,
+    deadline_tasks: list
+) -> str:
+    """Genera un resumen diario estructurado en Python como respaldo garantizado para /hoy."""
+    lines = []
+
+    # 1. El Tiempo
+    weather_summary = weather.get("summary", "Sin previsión disponible") if isinstance(weather, dict) else str(weather)
+    lines.append(f"🌤️ **El Tiempo hoy ({day_es} {today.strftime('%d/%m/%Y')})**\n{weather_summary}")
+
+    # 2. Noticias
+    lines.append("\n📰 **Noticias Destacadas del Día**")
+    if news and isinstance(news, list):
+        for item in news[:3]:
+            source = item.get("source", "Noticia")
+            title = item.get("title", "")
+            link = item.get("link", "")
+            if link:
+                lines.append(f"• [{source}]({link}) {title}")
+            else:
+                lines.append(f"• **{source}:** {title}")
+    else:
+        lines.append("• No hay noticias disponibles en este momento.")
+
+    # 3. Agenda
+    lines.append("\n📅 **Agenda**")
+    if events and isinstance(events, list) and not events[0].get("error"):
+        for ev in events:
+            summary = ev.get("summary", ev.get("title", "Evento"))
+            start = ev.get("start", "")
+            lines.append(f"• {start} - {summary}".strip(" -"))
+    else:
+        lines.append("• Sin eventos programados para hoy. ¡Qué aproveche el descanso! 🧘")
+
+    # 4. Tareas con plazo
+    lines.append("\n⏳ **Tareas con Plazo**")
+    if deadline_tasks:
+        for dt in deadline_tasks:
+            deadline_str = dt.deadline.strftime("%d/%m %H:%M")
+            lines.append(f"• {dt.title} 📦 → {deadline_str}")
+    else:
+        lines.append("• Sin tareas pendientes con fecha límite.")
+
+    return "\n".join(lines)
+
+
 async def generate_hoy_summary() -> tuple[str, list]:
     """Pre-recopila únicamente Weather, Noticias, Calendar y Deadlines para generar /hoy limpio sin incluir pastilla, gimnasio ni spotify."""
     today = get_today_local()
@@ -125,21 +193,20 @@ async def generate_hoy_summary() -> tuple[str, list]:
     news = await get_top_news(3)
 
     try:
-        events = get_day_events(today)
+        events = await get_day_events_async(today)
     except Exception as e:
+        logger.error(f"Error consultando calendario en /hoy: {e}")
         events = [{"error": str(e)}]
 
     async with AsyncSessionLocal() as db:
         deadline_tasks = await get_pending_deadline_tasks(db)
-
-    formatted_news = "\n".join([f"• [{item['source']}] {item['title']}" for item in news])
 
     prompt = f"""
 Genera un resumen diario conciso, visual, claro, amigable y muy estructurado con emojis en castellano para David:
 - Día de hoy: {day_es} {today.strftime('%d/%m/%Y')}
 - Previsión del Tiempo: {weather['summary']}
 - Noticias destacadas del día:
-{formatted_news}
+{[{'source': item['source'], 'title': item['title']} for item in news]}
 - Agenda de Google Calendar para hoy: {events}
 - Tareas pendientes con fecha límite: {[{'id': t.id, 'title': t.title, 'deadline': t.deadline.strftime('%d/%m %H:%M')} for t in deadline_tasks]}
 
@@ -154,7 +221,24 @@ Instrucciones de formato estricto:
 - No muestres pensamientos internos, razonamientos ni planificación.
 """
 
-    response = await run_agent(prompt)
+    response = None
+    try:
+        res = await run_agent(prompt, enable_tools=False)
+        if res and res.strip() and not res.strip().startswith("⚠️"):
+            response = res
+    except Exception as err:
+        logger.warning(f"Error generando /hoy con IA: {err}")
+
+    if not response:
+        logger.info("Usando plantilla determinista de respaldo en Python para /hoy.")
+        response = format_fallback_hoy_summary(
+            today=today,
+            day_es=day_es,
+            weather=weather,
+            news=news,
+            events=events,
+            deadline_tasks=deadline_tasks
+        )
 
     keyboard = []
     for dt in deadline_tasks:
@@ -264,7 +348,10 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 @restricted
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"No se pudo responder inmediatamente al callback_query: {e}")
 
     data = query.data
     logger.info(f"Callback recibido: {data}")
@@ -275,14 +362,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await safe_send_typing(query.message.chat)
             response, keyboard = await generate_hoy_summary()
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await safe_reply_text(query.message, response, reply_markup=reply_markup)
+            await safe_edit_message_text(query, response, reply_markup=reply_markup)
 
         elif data == "btn_spotify":
             await safe_send_typing(query.message.chat)
             tracker = await get_or_create_spotify_tracker(db)
             text, keyboard = build_spotify_status_and_keyboard(tracker)
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await safe_reply_text(query.message, text, reply_markup=reply_markup)
+            await safe_edit_message_text(query, text, reply_markup=reply_markup)
 
         elif data == "btn_entreno":
             await safe_send_typing(query.message.chat)
@@ -292,56 +379,56 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 [InlineKeyboardButton("🧗 Fui a Escalada", callback_data="workout_climbing")],
                 [InlineKeyboardButton("💤 Día de Descanso", callback_data="workout_rest")]
             ]
-            await safe_reply_text(query.message, response, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit_message_text(query, response, reply_markup=InlineKeyboardMarkup(keyboard))
 
         elif data.startswith("done_deadline_"):
             task_id = int(data.split("done_deadline_")[1])
             task = await mark_deadline_task_completed(db, task_id)
             if task:
-                await query.edit_message_text(f"✅ **Tarea Completada y Eliminada:** '{task.title}'", parse_mode="Markdown")
+                await safe_edit_message_text(query, f"✅ **Tarea Completada y Eliminada:** '{task.title}'")
             else:
-                await query.edit_message_text(f"⚠️ La tarea ID {task_id} ya fue completada o eliminada previamente.")
+                await safe_edit_message_text(query, f"⚠️ La tarea ID {task_id} ya fue completada o eliminada previamente.")
 
         elif data == "pill_taken":
             entry = await confirm_pill_taken(db, target_date=today)
-            await query.edit_message_text(f"💊 **¡Pastilla Confirmada!** Registrada como tomada hoy {entry.log_date}. ¡Gracias!", parse_mode="Markdown")
+            await safe_edit_message_text(query, f"💊 **¡Pastilla Confirmada!** Registrada como tomada hoy {entry.log_date}. ¡Gracias!")
 
         elif data.startswith("spotify_paid_"):
             friend_name = data.split("spotify_paid_")[1]
             tracker = await update_spotify_friend_payment(db, friend_name, True)
             text, keyboard = build_spotify_status_and_keyboard(tracker)
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+            await safe_edit_message_text(query, text, reply_markup=reply_markup)
 
         elif data == "workout_done":
             workout = await get_smart_next_workout_routine(db)
             if workout:
                 log_entry = await log_completed_workout(db, workout_id=workout.id, notes="Completado vía botón inline")
-                await query.edit_message_text(
+                await safe_edit_message_text(
+                    query,
                     f"💪 **¡Entrenamiento Registrado!**\n\n"
-                    f"Se ha completado la rutina **{workout.name}** ({workout.target_muscles}). ¡Excelente trabajo! 🔥",
-                    parse_mode="Markdown"
+                    f"Se ha completado la rutina **{workout.name}** ({workout.target_muscles}). ¡Excelente trabajo! 🔥"
                 )
             else:
-                await query.edit_message_text("⚠️ No se encontró rutina activa para registrar.")
+                await safe_edit_message_text(query, "⚠️ No se encontró rutina activa para registrar.")
 
         elif data == "workout_climbing":
             await log_activity_by_name(db, "Escalada", notes="Registrado vía botón inline")
-            await query.edit_message_text("🧗 **¡Sesión de Escalada Registrada!** Mañana ajustaremos la rotación para no cargar la espalda (se omitirá Pull).", parse_mode="Markdown")
+            await safe_edit_message_text(query, "🧗 **¡Sesión de Escalada Registrada!** Mañana ajustaremos la rotación para no cargar la espalda (se omitirá Pull).")
 
         elif data == "workout_rest":
             await log_activity_by_name(db, "Descanso", notes="Registrado vía botón inline")
-            await query.edit_message_text("💤 **Día de Descanso Registrado**\n¡A recuperar energías! La rotación de tu entrenamiento se mantendrá lista para tu próxima sesión.", parse_mode="Markdown")
+            await safe_edit_message_text(query, "💤 **Día de Descanso Registrado**\n¡A recuperar energías! La rotación de tu entrenamiento se mantendrá lista para tu próxima sesión.")
 
         elif data == "office_yes":
             target_dt = today + timedelta(days=1)
             await set_office_attendance(db, target_dt, True)
-            await query.edit_message_text(f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 21:00.", parse_mode="Markdown")
+            await safe_edit_message_text(query, f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 21:00.")
 
         elif data == "office_no":
             target_dt = today + timedelta(days=1)
             await set_office_attendance(db, target_dt, False)
-            await query.edit_message_text(f"🏠 Registrado que te quedas en casa el {target_dt.strftime('%d/%m/%Y')}.", parse_mode="Markdown")
+            await safe_edit_message_text(query, f"🏠 Registrado que te quedas en casa el {target_dt.strftime('%d/%m/%Y')}.")
 
         elif data == "tasks_done":
             due_tasks = await get_due_recurring_tasks(db)
@@ -350,13 +437,13 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 for t in due_tasks:
                     await mark_task_completed(db, t.id)
                     completed_names.append(t.title)
-                await query.edit_message_text(
+                await safe_edit_message_text(
+                    query,
                     f"🧹 **Tareas del Hogar Marcadas como Completadas**\n\n"
-                    + "\n".join([f"✓ {name}" for name in completed_names]),
-                    parse_mode="Markdown"
+                    + "\n".join([f"✓ {name}" for name in completed_names])
                 )
             else:
-                await query.edit_message_text("✨ ¡No tenías tareas pendientes vencidas hoy! Todo al día.", parse_mode="Markdown")
+                await safe_edit_message_text(query, "✨ ¡No tenías tareas pendientes vencidas hoy! Todo al día.")
 
 def register_handlers(application):
     application.add_handler(CommandHandler("start", start_command))

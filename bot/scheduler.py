@@ -12,7 +12,7 @@ from database.crud import (
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
     update_deadline_last_reminded
 )
-from tools.calendar_tools import get_day_events, get_week_events
+from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
 from agent.engine import run_agent
 
@@ -164,9 +164,9 @@ async def morning_briefing_job(app):
     events = []
     try:
         if is_monday:
-            events = get_week_events(today)
+            events = await get_week_events_async(today)
         else:
-            events = get_day_events(today)
+            events = await get_day_events_async(today)
     except Exception as e:
         logger.error(f"Error consultando calendario: {e}")
         events = [{"error": str(e)}]
@@ -197,8 +197,8 @@ Toda la información necesaria ya te ha sido proporcionada en esta consulta. NO 
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            res = await run_agent(prompt)
-            if res and res.strip() and res.strip() != "📅 Resumen procesado correctamente." and not res.strip().startswith("⚠️"):
+            res = await run_agent(prompt, enable_tools=False)
+            if res and res.strip() and not res.strip().startswith("⚠️"):
                 summary = res
                 logger.info(f"Briefing Matutino generado con éxito por la IA en el intento {attempt}.")
                 break
