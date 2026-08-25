@@ -32,18 +32,15 @@ logger = logging.getLogger(__name__)
 is_groq = settings.groq_api_key and settings.groq_api_key.startswith("gsk_")
 
 if is_groq:
-    logger.info("Usando motor Groq API con fallback multimodelo resiliente...")
+    logger.info("Usando motor Groq API con fallback multimodelo (Qwen 3.6 27B / GPT-OSS 120B / GPT-OSS 20B)...")
     client = AsyncOpenAI(
         api_key=settings.groq_api_key,
         base_url="https://api.groq.com/openai/v1"
     )
     MODELS_TO_TRY = [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it"
+        "qwen/qwen3.6-27b",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b"
     ]
 else:
     logger.info("Usando motor OpenAI API (gpt-4o-mini)...")
