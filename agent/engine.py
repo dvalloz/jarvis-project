@@ -32,12 +32,19 @@ logger = logging.getLogger(__name__)
 is_groq = settings.groq_api_key and settings.groq_api_key.startswith("gsk_")
 
 if is_groq:
-    logger.info("Usando motor Groq API con fallback multimodelo (Llama 3.3 70B / Qwen 2.5 32B / Llama 3.1 8B)...")
+    logger.info("Usando motor Groq API con fallback multimodelo resiliente...")
     client = AsyncOpenAI(
         api_key=settings.groq_api_key,
         base_url="https://api.groq.com/openai/v1"
     )
-    MODELS_TO_TRY = ["llama-3.3-70b-versatile", "qwen-2.5-32b", "llama-3.1-8b-instant"]
+    MODELS_TO_TRY = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+    ]
 else:
     logger.info("Usando motor OpenAI API (gpt-4o-mini)...")
     client = AsyncOpenAI(
@@ -253,7 +260,7 @@ async def run_agent(user_message: str, enable_tools: bool = True) -> str:
             response = None
             last_exception = None
 
-            # Fallback automático entre modelos si ocurre un Rate Limit 429
+            # Fallback automático entre modelos si ocurre cualquier error de API (404, 429, 500, etc.)
             for model_name in MODELS_TO_TRY:
                 try:
                     kwargs = {
@@ -269,12 +276,9 @@ async def run_agent(user_message: str, enable_tools: bool = True) -> str:
                     break
                 except Exception as err:
                     err_str = str(err)
-                    if "429" in err_str or "rate_limit" in err_str.lower() or "ratelimit" in err_str.lower():
-                        logger.warning(f"Rate limit 429 alcanzado en modelo '{model_name}'. Reintentando con modelo de respaldo...")
-                        last_exception = err
-                        continue
-                    else:
-                        raise err
+                    logger.warning(f"Error con modelo '{model_name}' ({err_str}). Reintentando con siguiente modelo de respaldo...")
+                    last_exception = err
+                    continue
 
             if response is None:
                 if last_exception:
