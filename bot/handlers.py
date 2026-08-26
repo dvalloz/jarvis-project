@@ -51,23 +51,6 @@ async def safe_reply_text(message, text: str, reply_markup=None):
         except Exception as e2:
             logger.error(f"Error definitivo enviando mensaje de texto: {e2}")
 
-async def safe_edit_message_text(query, text: str, reply_markup=None):
-    """Edita un mensaje de forma segura atrapando posibles errores de Markdown o 'Message is not modified'."""
-    if not text or not text.strip():
-        text = "✅ Acción registrada correctamente."
-    try:
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
-    except Exception as e:
-        err_msg = str(e)
-        if "Message is not modified" in err_msg:
-            logger.debug("safe_edit_message_text: El mensaje no ha cambiado.")
-            return
-        logger.warning(f"Error editando mensaje con parse_mode Markdown: {e}. Reintentando sin formato...")
-        try:
-            await query.edit_message_text(text, reply_markup=reply_markup)
-        except Exception as e2:
-            logger.error(f"Error definitivo editando mensaje de callback: {e2}")
-
 def restricted(func):
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
@@ -348,10 +331,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 @restricted
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    try:
-        await query.answer()
-    except Exception as e:
-        logger.warning(f"No se pudo responder inmediatamente al callback_query: {e}")
+    await query.answer()
 
     data = query.data
     logger.info(f"Callback recibido: {data}")
@@ -362,14 +342,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await safe_send_typing(query.message.chat)
             response, keyboard = await generate_hoy_summary()
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await safe_edit_message_text(query, response, reply_markup=reply_markup)
+            await safe_reply_text(query.message, response, reply_markup=reply_markup)
 
         elif data == "btn_spotify":
             await safe_send_typing(query.message.chat)
             tracker = await get_or_create_spotify_tracker(db)
             text, keyboard = build_spotify_status_and_keyboard(tracker)
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await safe_edit_message_text(query, text, reply_markup=reply_markup)
+            await safe_reply_text(query.message, text, reply_markup=reply_markup)
 
         elif data == "btn_entreno":
             await safe_send_typing(query.message.chat)
@@ -379,56 +359,56 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 [InlineKeyboardButton("🧗 Fui a Escalada", callback_data="workout_climbing")],
                 [InlineKeyboardButton("💤 Día de Descanso", callback_data="workout_rest")]
             ]
-            await safe_edit_message_text(query, response, reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_reply_text(query.message, response, reply_markup=InlineKeyboardMarkup(keyboard))
 
         elif data.startswith("done_deadline_"):
             task_id = int(data.split("done_deadline_")[1])
             task = await mark_deadline_task_completed(db, task_id)
             if task:
-                await safe_edit_message_text(query, f"✅ **Tarea Completada y Eliminada:** '{task.title}'")
+                await query.edit_message_text(f"✅ **Tarea Completada y Eliminada:** '{task.title}'", parse_mode="Markdown")
             else:
-                await safe_edit_message_text(query, f"⚠️ La tarea ID {task_id} ya fue completada o eliminada previamente.")
+                await query.edit_message_text(f"⚠️ La tarea ID {task_id} ya fue completada o eliminada previamente.")
 
         elif data == "pill_taken":
             entry = await confirm_pill_taken(db, target_date=today)
-            await safe_edit_message_text(query, f"💊 **¡Pastilla Confirmada!** Registrada como tomada hoy {entry.log_date}. ¡Gracias!")
+            await query.edit_message_text(f"💊 **¡Pastilla Confirmada!** Registrada como tomada hoy {entry.log_date}. ¡Gracias!", parse_mode="Markdown")
 
         elif data.startswith("spotify_paid_"):
             friend_name = data.split("spotify_paid_")[1]
             tracker = await update_spotify_friend_payment(db, friend_name, True)
             text, keyboard = build_spotify_status_and_keyboard(tracker)
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await safe_edit_message_text(query, text, reply_markup=reply_markup)
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
         elif data == "workout_done":
             workout = await get_smart_next_workout_routine(db)
             if workout:
                 log_entry = await log_completed_workout(db, workout_id=workout.id, notes="Completado vía botón inline")
-                await safe_edit_message_text(
-                    query,
+                await query.edit_message_text(
                     f"💪 **¡Entrenamiento Registrado!**\n\n"
-                    f"Se ha completado la rutina **{workout.name}** ({workout.target_muscles}). ¡Excelente trabajo! 🔥"
+                    f"Se ha completado la rutina **{workout.name}** ({workout.target_muscles}). ¡Excelente trabajo! 🔥",
+                    parse_mode="Markdown"
                 )
             else:
-                await safe_edit_message_text(query, "⚠️ No se encontró rutina activa para registrar.")
+                await query.edit_message_text("⚠️ No se encontró rutina activa para registrar.")
 
         elif data == "workout_climbing":
             await log_activity_by_name(db, "Escalada", notes="Registrado vía botón inline")
-            await safe_edit_message_text(query, "🧗 **¡Sesión de Escalada Registrada!** Mañana ajustaremos la rotación para no cargar la espalda (se omitirá Pull).")
+            await query.edit_message_text("🧗 **¡Sesión de Escalada Registrada!** Mañana ajustaremos la rotación para no cargar la espalda (se omitirá Pull).", parse_mode="Markdown")
 
         elif data == "workout_rest":
             await log_activity_by_name(db, "Descanso", notes="Registrado vía botón inline")
-            await safe_edit_message_text(query, "💤 **Día de Descanso Registrado**\n¡A recuperar energías! La rotación de tu entrenamiento se mantendrá lista para tu próxima sesión.")
+            await query.edit_message_text("💤 **Día de Descanso Registrado**\n¡A recuperar energías! La rotación de tu entrenamiento se mantendrá lista para tu próxima sesión.", parse_mode="Markdown")
 
         elif data == "office_yes":
             target_dt = today + timedelta(days=1)
             await set_office_attendance(db, target_dt, True)
-            await safe_edit_message_text(query, f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 21:00.")
+            await query.edit_message_text(f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 21:00.", parse_mode="Markdown")
 
         elif data == "office_no":
             target_dt = today + timedelta(days=1)
             await set_office_attendance(db, target_dt, False)
-            await safe_edit_message_text(query, f"🏠 Registrado que te quedas en casa el {target_dt.strftime('%d/%m/%Y')}.")
+            await query.edit_message_text(f"🏠 Registrado que te quedas en casa el {target_dt.strftime('%d/%m/%Y')}.", parse_mode="Markdown")
 
         elif data == "tasks_done":
             due_tasks = await get_due_recurring_tasks(db)
@@ -437,13 +417,13 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 for t in due_tasks:
                     await mark_task_completed(db, t.id)
                     completed_names.append(t.title)
-                await safe_edit_message_text(
-                    query,
+                await query.edit_message_text(
                     f"🧹 **Tareas del Hogar Marcadas como Completadas**\n\n"
-                    + "\n".join([f"✓ {name}" for name in completed_names])
+                    + "\n".join([f"✓ {name}" for name in completed_names]),
+                    parse_mode="Markdown"
                 )
             else:
-                await safe_edit_message_text(query, "✨ ¡No tenías tareas pendientes vencidas hoy! Todo al día.")
+                await query.edit_message_text("✨ ¡No tenías tareas pendientes vencidas hoy! Todo al día.", parse_mode="Markdown")
 
 def register_handlers(application):
     application.add_handler(CommandHandler("start", start_command))

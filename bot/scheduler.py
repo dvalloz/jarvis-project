@@ -30,7 +30,7 @@ def get_today_local() -> date:
 async def deadline_checker_job(app):
     """
     Comprueba de forma continua e independiente las tareas con fecha límite próximas.
-    Envía notificaciones aisladas antes del vencimiento (ej. a 24h, 6h, 3h, 1h)
+    Envía notificaciones aisladas antes del vencimiento (ej. >24h día sí día no, 24h, 6h, 3h, 1h)
     con un botón táctil [✅ Marcar como hecha]. Al pulsar el botón, se elimina la tarea de PostgreSQL.
     """
     logger.info("Ejecutando job de comprobación periódica aislada de tareas con fecha límite...")
@@ -72,6 +72,15 @@ async def deadline_checker_job(app):
                 if not task.last_reminded_at or (now - task.last_reminded_at).total_seconds() >= 14400:
                     should_notify = True
                     urgent_level = f"📅 **RECORDATORIO PRÓXIMO:** Faltan **{int(total_hours)} horas** para la fecha límite:"
+            else:
+                # Vence en más de 24 horas -> 1 aviso día sí, día no (cada 48 horas / 2 días)
+                if not task.last_reminded_at or (now - task.last_reminded_at).total_seconds() >= 172800:
+                    should_notify = True
+                    days_left = int(total_hours // 24)
+                    if days_left == 1:
+                        urgent_level = "📌 **RECORDATORIO PENDIENTE:** Falta **1 día** para la fecha límite:"
+                    else:
+                        urgent_level = f"📌 **RECORDATORIO PENDIENTE:** Faltan **{days_left} días** para la fecha límite:"
 
             if should_notify:
                 keyboard = [[InlineKeyboardButton("✅ Marcar como hecha", callback_data=f"done_deadline_{task.id}")]]

@@ -296,6 +296,7 @@ $$0 < \Delta t \le 1\text{h} \implies \text{Aviso urgente cada 15 minutos}$$
 $$1\text{h} < \Delta t \le 3\text{h} \implies \text{Aviso cada 45 minutos}$$
 $$3\text{h} < \Delta t \le 6\text{h} \implies \text{Aviso cada 2 horas}$$
 $$6\text{h} < \Delta t \le 24\text{h} \implies \text{Aviso cada 4 horas}$$
+$$\Delta t > 24\text{h} \implies \text{Aviso aislado día sí, día no (cada 48 horas)}$$
 
 - **Antispam:** Se registra `task.last_reminded_at` en PostgreSQL para respetar estrictamente los intervalos.
 - **Borrado en 1-Clic:** Al pulsar `[✅ Marcar como hecha]`, se ejecuta `mark_deadline_task_completed()`, que borra físicamente la fila de la tabla `deadline_tasks`.
