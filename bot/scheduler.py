@@ -14,7 +14,6 @@ from database.crud import (
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
-from agent.engine import run_agent
 
 logger = logging.getLogger(__name__)
 
@@ -175,53 +174,17 @@ async def morning_briefing_job(app):
         workout = await get_smart_next_workout_routine(db)
         pill_taken = await is_pill_taken_today(db, target_date=today)
         deadline_tasks = await get_pending_deadline_tasks(db)
-
-    calendar_header = "📅 **AGENDA COMPLETA DE ESTA SEMANA (Lunes a Domingo)**" if is_monday else f"📅 **AGENDA DE HOY ({today.strftime('%d/%m/%Y')})**"
-    formatted_news = "\n".join([f"• [{item['source']}] {item['title']} (Enlace: {item['link']})" for item in news])
-
-    prompt = f"""
-Genera un Briefing Matutino conciso, visual y bien estructurado para Telegram:
-- Previsión Meteorológica para hoy: {weather['summary']}
-- 2-3 Noticias principales del día para leer con enlace:
-{formatted_news}
-- {calendar_header}: {events}
-- Rutina de gimnasio sugerida: {workout.name if workout else 'Descanso / No definida'} ({workout.target_muscles if workout else ''})
-- Tareas con plazo límite pendientes: {[{'id': dt.id, 'title': dt.title, 'deadline': dt.deadline.strftime('%d/%m %H:%M')} for dt in deadline_tasks]}
-- Estado Pastilla: {'Ya tomada' if pill_taken else 'Pendiente por tomar'}
-
-NOTA IMPORTANTE:
-Toda la información necesaria ya te ha sido proporcionada en esta consulta. NO invoques ninguna herramienta ni función. Sintetiza directamente la respuesta final para el usuario.
-"""
-
-    summary = None
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            res = await run_agent(prompt, enable_tools=False)
-            if res and res.strip() and not res.strip().startswith("⚠️"):
-                summary = res
-                logger.info(f"Briefing Matutino generado con éxito por la IA en el intento {attempt}.")
-                break
-            else:
-                logger.warning(f"Intento {attempt}/{max_retries}: La IA devolvió una respuesta no válida o genérica ('{res}'). Reintentando...")
-        except Exception as err:
-            logger.warning(f"Intento {attempt}/{max_retries}: Error llamando a run_agent en briefing: {err}")
-        
-        if attempt < max_retries:
-            await asyncio.sleep(2)
-
-    if not summary:
-        logger.error("Todos los intentos con la IA fallaron. Usando plantilla de respaldo en Python para el Briefing Matutino.")
-        summary = format_fallback_morning_briefing(
-            today=today,
-            is_monday=is_monday,
-            weather=weather,
-            news=news,
-            events=events,
-            workout=workout,
-            deadline_tasks=deadline_tasks,
-            pill_taken=pill_taken
-        )
+    
+    summary = format_fallback_morning_briefing(
+        today=today,
+        is_monday=is_monday,
+        weather=weather,
+        news=news,
+        events=events,
+        workout=workout,
+        deadline_tasks=deadline_tasks,
+        pill_taken=pill_taken
+    )
 
     message_text = f"☀️ **BRIEFING MATUTINO (07:30 AM)**\n\n{summary}"
 
