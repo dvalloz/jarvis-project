@@ -45,6 +45,7 @@ logs/
 *.tmp
 *.bak
 *.swp
+scratch/
 
 # ==========================================
 # Pruebas y Cobertura

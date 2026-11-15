@@ -260,7 +260,7 @@ Almacena los trabajos programados con `APScheduler`:
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).
-6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes) y resumen mensual el último día del mes.
+6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes) y resumen mensual el último día del mes (contabilizando de forma separada las sesiones de entrenamiento reales y los días de descanso).
 
 ---
 
