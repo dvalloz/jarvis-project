@@ -229,6 +229,12 @@ Contiene la función `run_agent(user_message, enable_tools=True)`:
 - Realiza hasta 6 iteraciones en bucle para encadenar llamadas si fuera necesario.
 - Pasa el resultado final por `clean_think_tags()` para eliminar de forma segura monólogos internos `<think>` y bloques `<tool_call>` sin descartar listas numeradas ni viñetas.
 
+#### `agent/email_classifier.py`
+Módulo especializado en la clasificación y triage de correos electrónicos bajo el principio **Zero-PII**:
+- **Filtro Determinista Local:** Si las cabeceras del correo indican publicidad (`List-Unsubscribe`, `Precedence: bulk` o etiquetas promocionales de Gmail), el correo se descarta de forma instantánea sin realizar llamadas a APIs externas.
+- **Inferencia Metadata-Only:** En correos potencialmente importantes, envía al LLM (Groq API) **únicamente el remitente y el asunto** en formato JSON. Nunca se expone el cuerpo del correo.
+- **Respaldo Heurístico de Alta Disponibilidad:** `evaluate_email_importance_heuristic()` evalúa palabras clave críticas ante caídas de red o límites de cuota de la IA para garantizar que ninguna notificación urgente se pierda.
+
 ---
 
 ### 4.4 Catálogo y Ejecución de Herramientas (`tools/`)
