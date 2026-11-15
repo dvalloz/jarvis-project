@@ -10,10 +10,12 @@ from database.crud import (
     get_smart_next_workout_routine, is_pill_taken_today,
     get_or_create_spotify_tracker, update_spotify_last_reminded, get_office_attendance,
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
-    update_deadline_last_reminded
+    update_deadline_last_reminded, create_or_get_email_log, mark_email_alert_sent
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
+from tools.email_tools import get_gmail_service, fetch_unread_emails_metadata
+from agent.email_classifier import triage_email
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +348,78 @@ async def nightly_checks_job(app):
             )
 
 # ---------------------------------------------------------
+# MONITOR DIURNO DE CORREOS IMPORTANTES (CADA 15 MINUTOS, 08:00 - 20:45)
+# ---------------------------------------------------------
+async def daytime_email_monitor_job(app):
+    """
+    Monitor diurno que inspecciona la bandeja de entrada periódicamente mediante Gmail API
+    bajo política Zero-PII, clasifica con IA basada en metadatos y emite alertas push a Telegram.
+    """
+    logger.info("Ejecutando job de monitor diurno de emails...")
+    try:
+        service = await asyncio.to_thread(get_gmail_service, interactive=False)
+    except Exception as e:
+        logger.warning(f"No se pudo inicializar servicio de Gmail (requiere autenticación o credenciales): {e}")
+        return
+
+    try:
+        unread_emails = await asyncio.to_thread(fetch_unread_emails_metadata, service, 15, "is:unread")
+    except Exception as e:
+        logger.warning(f"Error al listar emails no leídos de Gmail: {e}")
+        return
+
+    if not unread_emails:
+        return
+
+    async with AsyncSessionLocal() as db:
+        for mail_data in unread_emails:
+            msg_id = mail_data.get("message_id")
+            if not msg_id:
+                continue
+
+            # 1. Triage del correo (Zero-PII: cabeceras locales + LLM metadata-only)
+            triage_result = await triage_email(mail_data)
+            is_important = triage_result.get("is_important", False)
+            is_promotional = triage_result.get("is_promotional", False)
+            reason = triage_result.get("reason", "")
+
+            # 2. Registrar en base de datos garantizando idempotencia por message_id
+            email_log, created = await create_or_get_email_log(
+                db=db,
+                message_id=msg_id,
+                sender=mail_data.get("sender", ""),
+                subject=mail_data.get("subject", ""),
+                received_at=mail_data.get("received_at") or datetime.now(timezone(settings.timezone)),
+                is_promotional=is_promotional,
+                is_important=is_important
+            )
+
+            # 3. Si es importante y aún no se ha alertado, emitir notificación enriquecida en Telegram
+            if email_log.is_important and not email_log.alert_sent and not email_log.is_promotional:
+                gmail_url = f"https://mail.google.com/mail/u/0/#inbox/{email_log.message_id}"
+                keyboard = [[InlineKeyboardButton("📬 Abrir en Gmail", url=gmail_url)]]
+
+                alert_text = (
+                    f"🚨 **CORREO IMPORTANTE DETECTADO**\n\n"
+                    f"👤 **De:** {email_log.sender}\n"
+                    f"📌 **Asunto:** {email_log.subject}\n"
+                    f"💡 **Motivo:** {reason}"
+                )
+
+                try:
+                    await app.bot.send_message(
+                        chat_id=settings.telegram_user_id,
+                        text=alert_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="Markdown"
+                    )
+                    await mark_email_alert_sent(db, email_log.id)
+                    logger.info(f"Alerta enviada para email {email_log.message_id} de {email_log.sender}")
+                except Exception as send_err:
+                    logger.error(f"Error al enviar mensaje de alerta Telegram para email {email_log.id}: {send_err}")
+
+
+# ---------------------------------------------------------
 # 22:00 PM - CHECK-IN GIMNASIO (LUNES A VIERNES)
 # ---------------------------------------------------------
 async def nightly_gym_checkin_job(app):
@@ -431,5 +505,15 @@ def start_scheduler(app):
         id="nightly_gym_checkin"
     )
 
+    # 6. Monitor diurno de correos importantes (Cada 15 min entre 08:00 y 20:45)
+    scheduler.add_job(
+        daytime_email_monitor_job,
+        'cron',
+        hour='8-20',
+        minute='*/15',
+        args=[app],
+        id="daytime_email_monitor"
+    )
+
     scheduler.start()
-    logger.info("AsyncIOScheduler iniciado con éxito con comprobador de deadlines (cada 15m) y crons de 07:30, 15:00, 20:00, 21:00 y 22:00 en " + settings.timezone)
+    logger.info("AsyncIOScheduler iniciado con éxito con comprobador de deadlines (cada 15m), monitor de email y crons en " + settings.timezone)
