@@ -10,7 +10,8 @@ from database.crud import (
     get_smart_next_workout_routine, is_pill_taken_today,
     get_or_create_spotify_tracker, update_spotify_last_reminded, get_office_attendance,
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
-    update_deadline_last_reminded, create_or_get_email_log, mark_email_alert_sent
+    update_deadline_last_reminded, create_or_get_email_log, mark_email_alert_sent,
+    get_unsummarized_emails_for_date, mark_emails_night_summarized
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
@@ -346,6 +347,63 @@ async def nightly_checks_job(app):
                 text=msg,
                 parse_mode="Markdown"
             )
+
+        # 5. Resumen Consolidado de Correos del Día (Zero-PII)
+        # Sincronización nocturna previa para capturar emails de última hora
+        try:
+            service = await asyncio.to_thread(get_gmail_service, interactive=False)
+            latest_unread = await asyncio.to_thread(fetch_unread_emails_metadata, service, 15, "is:unread")
+            if latest_unread:
+                for mail_data in latest_unread:
+                    msg_id = mail_data.get("message_id")
+                    if msg_id:
+                        triage_res = await triage_email(mail_data)
+                        await create_or_get_email_log(
+                            db=db,
+                            message_id=msg_id,
+                            sender=mail_data.get("sender", ""),
+                            subject=mail_data.get("subject", ""),
+                            received_at=mail_data.get("received_at") or datetime.now(timezone(settings.timezone)),
+                            is_promotional=triage_res.get("is_promotional", False),
+                            is_important=triage_res.get("is_important", False)
+                        )
+        except Exception as sync_err:
+            logger.warning(f"Sincronización nocturna de emails omitida o no autenticada: {sync_err}")
+
+        # Consultar correos del día no promocionales pendientes de resumir
+        daily_emails = await get_unsummarized_emails_for_date(db, today)
+        if daily_emails:
+            important_list = [e for e in daily_emails if e.is_important]
+            other_list = [e for e in daily_emails if not e.is_important]
+
+            email_lines = []
+            if important_list:
+                email_lines.append("🔴 **Correos Importantes / Prioritarios:**")
+                for e in important_list:
+                    sender_clean = e.sender.split("<")[0].strip().strip('"') or e.sender
+                    email_lines.append(f"• **{sender_clean}:** {e.subject}")
+
+            if other_list:
+                if important_list:
+                    email_lines.append("")
+                email_lines.append("ℹ️ **Otros correos relevantes del día:**")
+                for e in other_list:
+                    sender_clean = e.sender.split("<")[0].strip().strip('"') or e.sender
+                    email_lines.append(f"• **{sender_clean}:** {e.subject}")
+
+            email_summary_text = "\n".join(email_lines)
+            nightly_email_msg = (
+                f"📬 **RESUMEN DE CORREOS DEL DÍA ({today.strftime('%d/%m/%Y')})**\n\n"
+                f"{email_summary_text}"
+            )
+            await app.bot.send_message(
+                chat_id=settings.telegram_user_id,
+                text=nightly_email_msg,
+                parse_mode="Markdown"
+            )
+            await mark_emails_night_summarized(db, [e.id for e in daily_emails])
+        else:
+            logger.info("Resumen nocturno: no hay correos no promocionales pendientes de resumir para hoy.")
 
 # ---------------------------------------------------------
 # MONITOR DIURNO DE CORREOS IMPORTANTES (CADA 15 MINUTOS, 08:00 - 20:45)
