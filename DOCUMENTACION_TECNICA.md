@@ -268,7 +268,7 @@ Almacena los trabajos programados con `APScheduler`:
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).
-6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes) y resumen mensual el último día del mes.
+6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes), resumen consolidado de correos del día (Zero-PII) y resumen mensual el último día del mes.
 7. **`daytime_email_monitor_job` (cada 15 minutos, 08:00 - 20:45)**: Monitoreo continuo de la bandeja de entrada vía Gmail API. Clasifica mensajes no leídos con el motor Zero-PII (`agent/email_classifier.py`), registra en `EmailLog` para deduplicación y envía notificaciones push inmediatas con botón de acceso directo a Gmail en caso de correos prioritarios.
 
 
