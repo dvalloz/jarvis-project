@@ -256,7 +256,7 @@ Contiene la función `run_agent(user_message, enable_tools=True)`:
 
 Almacena los trabajos programados con `APScheduler`:
 1. **`deadline_checker_job` (cada 15 minutos)**: Evalúa tareas próximas a su vencimiento y envía recordatorios aislados con botón `[✅ Marcar como hecha]`.
-2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar (no bloqueante), gimnasio y estado de la pastilla. Incorpora un bucle de reintentos (hasta 3 intentos), invocación con `enable_tools=False` y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad.
+2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar (no bloqueante), gimnasio y estado de la pastilla. Los martes (o miércoles si aún no se ha decidido) incorpora la consulta interactiva de asistencia a la oficina (Jueves, Viernes, No iré o No lo sé). Incorpora un bucle de reintentos (hasta 3 intentos), invocación con `enable_tools=False` y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad.
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).

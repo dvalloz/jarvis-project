@@ -11,7 +11,8 @@ from database.crud import (
     get_smart_next_workout_routine, log_completed_workout, get_due_recurring_tasks,
     mark_task_completed, confirm_pill_taken, is_pill_taken_today, set_office_attendance,
     get_or_create_spotify_tracker, update_spotify_friend_payment, log_activity_by_name,
-    get_pending_deadline_tasks, mark_deadline_task_completed
+    get_pending_deadline_tasks, mark_deadline_task_completed, get_week_office_dates,
+    clear_office_attendance
 )
 from tools.calendar_tools import get_day_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
@@ -400,10 +401,48 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             await log_activity_by_name(db, "Descanso", notes="Registrado vía botón inline")
             await query.edit_message_text("💤 **Día de Descanso Registrado**\n¡A recuperar energías! La rotación de tu entrenamiento se mantendrá lista para tu próxima sesión.", parse_mode="Markdown")
 
+        elif data == "office_day_thu":
+            thursday, friday = get_week_office_dates(today)
+            await set_office_attendance(db, thursday, True)
+            await set_office_attendance(db, friday, False)
+            await query.edit_message_text(
+                f"🏢 **Oficina Confirmada:** Registrado que irás a la oficina el **Jueves {thursday.strftime('%d/%m/%Y')}**.\n"
+                f"Te lo recordaré el miércoles por la noche (23:00 PM).",
+                parse_mode="Markdown"
+            )
+
+        elif data == "office_day_fri":
+            thursday, friday = get_week_office_dates(today)
+            await set_office_attendance(db, thursday, False)
+            await set_office_attendance(db, friday, True)
+            await query.edit_message_text(
+                f"🏢 **Oficina Confirmada:** Registrado que irás a la oficina el **Viernes {friday.strftime('%d/%m/%Y')}**.\n"
+                f"Te lo recordaré el jueves por la noche (23:00 PM).",
+                parse_mode="Markdown"
+            )
+
+        elif data == "office_day_none":
+            thursday, friday = get_week_office_dates(today)
+            await set_office_attendance(db, thursday, False)
+            await set_office_attendance(db, friday, False)
+            await query.edit_message_text(
+                "🏠 Registrado que te quedas en casa toda esta semana (teletrabajo). No habrá avisos de oficina.",
+                parse_mode="Markdown"
+            )
+
+        elif data == "office_day_unknown":
+            thursday, friday = get_week_office_dates(today)
+            await clear_office_attendance(db, thursday)
+            await clear_office_attendance(db, friday)
+            await query.edit_message_text(
+                "❓ Entendido, aún no lo sabes con seguridad. Te volveré a preguntar mañana.",
+                parse_mode="Markdown"
+            )
+
         elif data == "office_yes":
             target_dt = today + timedelta(days=1)
             await set_office_attendance(db, target_dt, True)
-            await query.edit_message_text(f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 21:00.", parse_mode="Markdown")
+            await query.edit_message_text(f"🏢 **Oficina Confirmada**: Registrado que irás a la oficina el {target_dt.strftime('%d/%m/%Y')}. Te lo recordaré la noche anterior a las 23:00 PM.", parse_mode="Markdown")
 
         elif data == "office_no":
             target_dt = today + timedelta(days=1)
