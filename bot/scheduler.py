@@ -10,8 +10,7 @@ from database.crud import (
     get_smart_next_workout_routine, is_pill_taken_today,
     get_or_create_spotify_tracker, update_spotify_last_reminded, get_office_attendance,
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
-    update_deadline_last_reminded, create_or_get_email_log, mark_email_alert_sent,
-    get_unsummarized_emails_for_date, mark_emails_night_summarized
+    update_deadline_last_reminded, get_weekly_office_decision
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
@@ -207,14 +206,24 @@ async def morning_briefing_job(app):
     for dt in deadline_tasks:
         keyboard.append([InlineKeyboardButton(f"✅ Marcar hecha: {dt.title[:30]}", callback_data=f"done_deadline_{dt.id}")])
 
-    if today.weekday() == 1:  # Martes
+    # Pregunta de asistencia a la oficina: Martes (día 1) o Miércoles (día 2 si aún no se ha decidido)
+    if today.weekday() in (1, 2):
         async with AsyncSessionLocal() as db:
-            office_status = await get_office_attendance(db, today + timedelta(days=1))
-            if office_status is None:
-                message_text += "\n\n🏢 **OFICINA:** ¿Vas a ir a la oficina esta semana?"
+            decision = await get_weekly_office_decision(db, today)
+            if decision is None:
+                prompt_text = (
+                    "¿Qué día vas a la oficina esta semana?"
+                    if today.weekday() == 1
+                    else "¿Ya sabes qué día vas a la oficina esta semana?"
+                )
+                message_text += f"\n\n🏢 **OFICINA:** {prompt_text}"
                 keyboard.append([
-                    InlineKeyboardButton("🏢 Sí voy a la oficina", callback_data="office_yes"),
-                    InlineKeyboardButton("🏠 No voy (Teletrabajo)", callback_data="office_no")
+                    InlineKeyboardButton("🏢 Jueves", callback_data="office_day_thu"),
+                    InlineKeyboardButton("🏢 Viernes", callback_data="office_day_fri")
+                ])
+                keyboard.append([
+                    InlineKeyboardButton("🏠 No iré", callback_data="office_day_none"),
+                    InlineKeyboardButton("❓ No lo sé", callback_data="office_day_unknown")
                 ])
 
     reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
@@ -332,13 +341,19 @@ async def nightly_checks_job(app):
         if is_last_day_of_month:
             summary_data = await get_monthly_workout_summary(db, today.year, today.month)
             total = summary_data["total_workouts"]
+            rest_days = summary_data.get("rest_days", 0)
             breakdown = summary_data["breakdown"]
 
-            breakdown_text = "\n".join([f"• **{name}:** {count} veces" for name, count in breakdown.items()]) if breakdown else "No se registraron entrenamientos este mes."
+            breakdown_text = (
+                "\n".join([f"• **{name}:** {count} veces" for name, count in breakdown.items()])
+                if breakdown
+                else "No se registraron entrenamientos físicos este mes."
+            )
 
             msg = (
                 f"📊 **RESUMEN MENSUAL DE ENTRENAMIENTOS ({today.strftime('%m/%Y')})**\n\n"
-                f"🏆 **Total de sesiones realizadas este mes:** {total}\n\n"
+                f"🏆 **Total de sesiones realizadas este mes:** {total}\n"
+                f"💤 **Días de descanso registrados:** {rest_days}\n\n"
                 f"📋 **Desglose por rutina:**\n{breakdown_text}\n\n"
                 f"¡Buen trabajo este mes! 💪🔥"
             )

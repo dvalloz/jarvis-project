@@ -264,12 +264,13 @@ Módulo especializado en la clasificación y triage de correos electrónicos baj
 
 Almacena los trabajos programados con `APScheduler`:
 1. **`deadline_checker_job` (cada 15 minutos)**: Evalúa tareas próximas a su vencimiento y envía recordatorios aislados con botón `[✅ Marcar como hecha]`.
-2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar (no bloqueante), gimnasio y estado de la pastilla. Incorpora un bucle de reintentos (hasta 3 intentos), invocación con `enable_tools=False` y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad.
+2. **`morning_briefing_job` (07:30 AM)**: Briefing matutino completo con el tiempo, 2-3 noticias del día, agenda de Google Calendar (no bloqueante), gimnasio y estado de la pastilla. Los martes (o miércoles si aún no se ha decidido) incorpora la consulta interactiva de asistencia a la oficina (Jueves, Viernes, No iré o No lo sé). Incorpora un bucle de reintentos (hasta 3 intentos), invocación con `enable_tools=False` y respaldo determinista en Python (`format_fallback_morning_briefing`) para asegurar la entrega del mensaje con un 100% de fiabilidad.
 3. **`afternoon_pill_job` (15:00 PM)**: Segundo aviso de verificación de pastilla si aún no se ha tomado.
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).
 6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes), resumen consolidado de correos del día (Zero-PII) y resumen mensual el último día del mes.
 7. **`daytime_email_monitor_job` (cada 15 minutos, 08:00 - 20:45)**: Monitoreo continuo de la bandeja de entrada vía Gmail API. Clasifica mensajes no leídos con el motor Zero-PII (`agent/email_classifier.py`), registra en `EmailLog` para deduplicación y envía notificaciones push inmediatas con botón de acceso directo a Gmail en caso de correos prioritarios.
+
 
 ---
 

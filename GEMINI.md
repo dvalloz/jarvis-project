@@ -24,19 +24,25 @@ Este documento establece el marco de trabajo, el protocolo de ejecución autóno
   - `Done`: `98236657`
 
 ### Flujo de Ejecución por Tarea:
-1. **Triage:** Al recibir la orden de abordar trabajo (o al decir "siguiente tarea"), consultar las tareas en la columna **`Ready`** y seleccionar la primera por orden de prioridad.
-2. **Inicio del Trabajo:** 
+1. **Prioridad 1 - Triage de `In progress` (Feedback y Cambios):**
+   - Al recibir la orden de abordar trabajo (o "siguiente tarea"), consultar **siempre en primer lugar** los items presentes en la columna **`In progress`** (`47fc9ee4`).
+   - Si existen tareas en **`In progress`**, significa que el usuario ha devuelto una tarea tras revisarla o ha dejado comentarios/indicaciones con ajustes solicitados.
+   - Leer los últimos comentarios de la Issue (y de la PR vinculada) para comprender el feedback del usuario.
+   - Retomar el trabajo en la rama correspondiente, implementar los cambios solicitados, verificar con tests, documentar en un comentario en la Issue los ajustes realizados y mover nuevamente la tarjeta a **`In review`**.
+2. **Prioridad 2 - Triage de `Ready` (Nuevas Tareas):**
+   - **Únicamente cuando la columna `In progress` esté completamente vacía (`0` items)**, consultar las tareas en la columna **`Ready`** (`61e4505c`) y seleccionar la primera por orden de prioridad o creación.
+3. **Inicio de Nueva Tarea (desde `Ready`):** 
    - Cambiar el estado de la tarea en el tablero a **`In progress`**.
    - Publicar un primer comentario en la Issue de GitHub indicando que se ha iniciado el desarrollo y el enfoque planeado.
-3. **Desarrollo y Bitácora:**
-   - Crear una rama de desarrollo dedicada a la tarea.
+4. **Desarrollo y Bitácora:**
+   - Crear una rama de desarrollo dedicada a la tarea (`feat/`, `fix/`, `refactor/`).
    - Modificar el código, añadir herramientas, modelos o configuraciones necesarias.
    - Dejar comentarios en la Issue si hay hitos clave o decisiones de diseño relevantes.
-4. **Verificación:**
+5. **Verificación:**
    - Ejecutar pruebas automáticas o verificaciones de sintaxis y consistencia de datos.
-5. **Pase a Revisión y Creación de PR:**
-   - Subir la rama a GitHub y abrir una Pull Request (PR) dirigida a `dev` (o `main`) enlazando la Issue (`Closes #<número>`).
-   - Cambiar el estado de la tarjeta en el tablero a **`In review`**.
+6. **Pase a Revisión y Creación de PR:**
+   - Subir la rama a GitHub y abrir una Pull Request (PR) dirigida a `dev` enlazando la Issue (`Closes #<número>`).
+   - Cambiar el estado de la tarjeta de la Issue en el tablero a **`In review`** y agregar la PR creada al tablero también en **`In review`**.
    - Publicar un comentario final de cierre en la Issue con el resumen de cambios realizados, archivos tocados, enlace a la PR y estado de los tests.
    - Presentar al usuario el reporte final indicando que la tarea está lista para su revisión y despliegue.
 
