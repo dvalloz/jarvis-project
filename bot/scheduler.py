@@ -329,13 +329,19 @@ async def nightly_checks_job(app):
         if is_last_day_of_month:
             summary_data = await get_monthly_workout_summary(db, today.year, today.month)
             total = summary_data["total_workouts"]
+            rest_days = summary_data.get("rest_days", 0)
             breakdown = summary_data["breakdown"]
 
-            breakdown_text = "\n".join([f"• **{name}:** {count} veces" for name, count in breakdown.items()]) if breakdown else "No se registraron entrenamientos este mes."
+            breakdown_text = (
+                "\n".join([f"• **{name}:** {count} veces" for name, count in breakdown.items()])
+                if breakdown
+                else "No se registraron entrenamientos físicos este mes."
+            )
 
             msg = (
                 f"📊 **RESUMEN MENSUAL DE ENTRENAMIENTOS ({today.strftime('%m/%Y')})**\n\n"
-                f"🏆 **Total de sesiones realizadas este mes:** {total}\n\n"
+                f"🏆 **Total de sesiones realizadas este mes:** {total}\n"
+                f"💤 **Días de descanso registrados:** {rest_days}\n\n"
                 f"📋 **Desglose por rutina:**\n{breakdown_text}\n\n"
                 f"¡Buen trabajo este mes! 💪🔥"
             )

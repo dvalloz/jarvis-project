@@ -62,7 +62,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "get_monthly_workout_summary",
-            "description": "Obtiene el recuento total de entrenamientos realizados este mes y cuántas veces se ha hecho cada rutina específica.",
+            "description": "Obtiene el recuento total de entrenamientos físicos realizados este mes (excluyendo días de descanso), los días de descanso y cuántas veces se ha hecho cada rutina específica.",
             "parameters": {
                 "type": "object",
                 "properties": {
