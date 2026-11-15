@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from database.models import (
@@ -332,6 +332,66 @@ async def mark_office_night_notified(db: AsyncSession, target_date: date):
     if schedule:
         schedule.user_notified_night_before = True
         await db.commit()
+
+
+def get_week_office_dates(target_date: date) -> Tuple[date, date]:
+    """
+    Retorna la tupla (jueves, viernes) correspondiente a la semana de la fecha dada.
+    Lunes = 0, Martes = 1, Miércoles = 2, Jueves = 3, Viernes = 4, Sábado = 5, Domingo = 6.
+
+    Args:
+        target_date: Fecha de referencia dentro de la semana.
+
+    Returns:
+        Tuple[date, date]: Fechas correspondientes al jueves y viernes de esa misma semana.
+    """
+    monday = target_date - timedelta(days=target_date.weekday())
+    thursday = monday + timedelta(days=3)
+    friday = monday + timedelta(days=4)
+    return thursday, friday
+
+
+async def clear_office_attendance(db: AsyncSession, target_date: date) -> None:
+    """
+    Elimina el registro de asistencia para una fecha determinada (estado indeterminado o 'No lo sé').
+
+    Args:
+        db: Sesión asíncrona de SQLAlchemy.
+        target_date: Fecha cuyo registro de asistencia se desea reiniciar.
+    """
+    stmt = select(OfficeSchedule).where(OfficeSchedule.schedule_date == target_date)
+    res = await db.execute(stmt)
+    schedule = res.scalar_one_or_none()
+    if schedule:
+        await db.delete(schedule)
+        await db.commit()
+
+
+async def get_weekly_office_decision(db: AsyncSession, today: date) -> Optional[str]:
+    """
+    Consulta si ya existe una decisión de oficina confirmada para la semana en curso.
+
+    Args:
+        db: Sesión asíncrona de SQLAlchemy.
+        today: Fecha de referencia.
+
+    Returns:
+        - 'thursday': si asiste el jueves.
+        - 'friday': si asiste el viernes.
+        - 'none': si confirmó que no asiste ningún día (teletrabajo toda la semana).
+        - None: si aún no ha decidido o seleccionó 'No lo sé'.
+    """
+    thursday, friday = get_week_office_dates(today)
+    thu_status = await get_office_attendance(db, thursday)
+    fri_status = await get_office_attendance(db, friday)
+
+    if thu_status is True:
+        return "thursday"
+    if fri_status is True:
+        return "friday"
+    if thu_status is False and fri_status is False:
+        return "none"
+    return None
 
 
 # ---------------------------------------------------------
