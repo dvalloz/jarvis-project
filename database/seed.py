@@ -1,6 +1,6 @@
 import asyncio
 from database.connection import engine
-from database.models import Base, Workout, RecurringTask
+from database.models import Base, Workout, RecurringTask, EmailLog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 

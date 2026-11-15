@@ -74,3 +74,22 @@ class DeadlineTask(Base):
     deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
     last_reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+class EmailLog(Base):
+    """
+    Registro y seguimiento de correos electrónicos recibidos vía Gmail API.
+    Garantiza deduplicación mediante message_id único y trazabilidad para
+    alertas diurnas y resúmenes consolidados nocturnos sin almacenar cuerpos de mensaje.
+    """
+    __tablename__ = "email_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    sender: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_promotional: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_important: Mapped[bool] = mapped_column(Boolean, default=False)
+    alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    night_summary_included: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

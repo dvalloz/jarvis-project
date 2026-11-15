@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from database.models import (
     Workout, WorkoutLog, RecurringTask, QuickReminder,
-    PillLog, SpotifyPaymentTracker, OfficeSchedule, DeadlineTask
+    PillLog, SpotifyPaymentTracker, OfficeSchedule, DeadlineTask,
+    EmailLog
 )
 
 # ---------------------------------------------------------
@@ -492,3 +493,124 @@ async def update_deadline_last_reminded(db: AsyncSession, task_id: int, reminded
         await db.commit()
         await db.refresh(task)
     return task
+
+
+# ---------------------------------------------------------
+# EMAIL LOG CRUD
+# ---------------------------------------------------------
+
+async def create_or_get_email_log(
+    db: AsyncSession,
+    message_id: str,
+    sender: str,
+    subject: str,
+    received_at: datetime,
+    is_promotional: bool = False,
+    is_important: bool = False
+) -> Tuple[EmailLog, bool]:
+    """
+    Registra un correo en base de datos si no existe previamente (idempotencia estricta por message_id).
+
+    Args:
+        db: Sesión asíncrona de base de datos.
+        message_id: ID único asignado por Gmail.
+        sender: Nombre y dirección de correo del remitente.
+        subject: Asunto del correo.
+        received_at: Fecha y hora de recepción del mensaje.
+        is_promotional: Booleano indicando si es publicidad o newsletter.
+        is_important: Booleano indicando si requiere atención prioritaria.
+
+    Returns:
+        Tuple[EmailLog, bool]: (Instancia de EmailLog, True si fue creado / False si ya existía).
+    """
+    stmt = select(EmailLog).where(EmailLog.message_id == message_id)
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+
+    if existing:
+        return existing, False
+
+    email_log = EmailLog(
+        message_id=message_id,
+        sender=sender,
+        subject=subject,
+        received_at=received_at,
+        is_promotional=is_promotional,
+        is_important=is_important,
+        alert_sent=False,
+        night_summary_included=False
+    )
+    db.add(email_log)
+    await db.commit()
+    await db.refresh(email_log)
+    return email_log, True
+
+
+async def get_email_log_by_message_id(db: AsyncSession, message_id: str) -> Optional[EmailLog]:
+    """Recupera un correo registrado por su message_id de Gmail."""
+    stmt = select(EmailLog).where(EmailLog.message_id == message_id)
+    res = await db.execute(stmt)
+    return res.scalar_one_or_none()
+
+
+async def get_pending_alert_emails(db: AsyncSession) -> List[EmailLog]:
+    """Obtiene los correos importantes que aún no han emitido alerta push diurna."""
+    stmt = (
+        select(EmailLog)
+        .where(
+            and_(
+                EmailLog.is_important == True,
+                EmailLog.alert_sent == False,
+                EmailLog.is_promotional == False
+            )
+        )
+        .order_by(EmailLog.received_at.asc())
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def mark_email_alert_sent(db: AsyncSession, email_id: int) -> Optional[EmailLog]:
+    """Marca un correo como notificado en la alerta diurna."""
+    stmt = select(EmailLog).where(EmailLog.id == email_id)
+    res = await db.execute(stmt)
+    email_log = res.scalar_one_or_none()
+    if email_log:
+        email_log.alert_sent = True
+        await db.commit()
+        await db.refresh(email_log)
+    return email_log
+
+
+async def get_unsummarized_emails_for_date(db: AsyncSession, target_date: date) -> List[EmailLog]:
+    """
+    Obtiene los correos no promocionales recibidos en una fecha que no se han incluido en el resumen nocturno.
+    """
+    start_dt = datetime.combine(target_date, datetime.min.time())
+    end_dt = datetime.combine(target_date, datetime.max.time())
+
+    stmt = (
+        select(EmailLog)
+        .where(
+            and_(
+                EmailLog.received_at >= start_dt,
+                EmailLog.received_at <= end_dt,
+                EmailLog.is_promotional == False,
+                EmailLog.night_summary_included == False
+            )
+        )
+        .order_by(EmailLog.received_at.asc())
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def mark_emails_night_summarized(db: AsyncSession, email_ids: List[int]) -> None:
+    """Marca una lista de correos como incluidos en el resumen nocturno."""
+    if not email_ids:
+        return
+    stmt = select(EmailLog).where(EmailLog.id.in_(email_ids))
+    res = await db.execute(stmt)
+    for email_log in res.scalars().all():
+        email_log.night_summary_included = True
+    await db.commit()
