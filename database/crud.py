@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from database.models import (
@@ -124,8 +124,30 @@ async def log_activity_by_name(db: AsyncSession, name_keyword: str, notes: str =
     return await log_completed_workout(db, workout_id=workout.id, notes=notes)
 
 
-async def get_monthly_workout_summary(db: AsyncSession, year: Optional[int] = None, month: Optional[int] = None) -> Dict:
-    """Genera el desglose mensual del total de entrenamientos y el recuento por cada rutina."""
+async def get_monthly_workout_summary(
+    db: AsyncSession,
+    year: Optional[int] = None,
+    month: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Genera el resumen mensual discriminando entrenamientos físicos reales de los días de descanso.
+
+    Separa las actividades de tipo 'Descanso' del total de sesiones realizadas, garantizando
+    que total_workouts contabilice exclusivamente el esfuerzo físico activo.
+
+    Args:
+        db: Sesión asíncrona de base de datos SQLAlchemy.
+        year: Año a consultar (si es None, toma el año actual).
+        month: Mes a consultar (si es None, toma el mes actual).
+
+    Returns:
+        Dict con las claves:
+            - year (int): Año consultado.
+            - month (int): Mes consultado.
+            - total_workouts (int): Suma de sesiones de entrenamiento físicas reales.
+            - rest_days (int): Cantidad de días de descanso registrados en el mes.
+            - breakdown (Dict[str, int]): Conteo individual por cada rutina física.
+    """
     today = date.today()
     if not year:
         year = today.year
@@ -147,13 +169,23 @@ async def get_monthly_workout_summary(db: AsyncSession, year: Optional[int] = No
     res = await db.execute(stmt)
     rows = res.fetchall()
 
-    breakdown = {name: count for name, count in rows}
+    breakdown: Dict[str, int] = {}
+    rest_days = 0
+
+    for name, count in rows:
+        # Si la rutina contiene la palabra 'descanso' (case-insensitive), se aísla como descanso
+        if "descanso" in name.lower():
+            rest_days += count
+        else:
+            breakdown[name] = count
+
     total_workouts = sum(breakdown.values())
 
     return {
         "year": year,
         "month": month,
         "total_workouts": total_workouts,
+        "rest_days": rest_days,
         "breakdown": breakdown
     }
 
