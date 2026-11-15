@@ -10,7 +10,9 @@ from database.crud import (
     get_smart_next_workout_routine, is_pill_taken_today,
     get_or_create_spotify_tracker, update_spotify_last_reminded, get_office_attendance,
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
-    update_deadline_last_reminded, get_weekly_office_decision
+    update_deadline_last_reminded, get_weekly_office_decision,
+    create_or_get_email_log, mark_email_alert_sent,
+    get_unsummarized_emails_for_date, mark_emails_night_summarized
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
