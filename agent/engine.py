@@ -24,6 +24,10 @@ from tools.task_tools import (
     delete_deadline_task_tool,
     update_deadline_task_tool
 )
+from tools.email_tools import (
+    check_important_emails_tool,
+    get_recent_emails_summary_tool
+)
 from agent.prompts import get_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -235,6 +239,15 @@ async def execute_tool_call(function_name: str, args: dict) -> str:
     elif function_name == "get_weather_forecast":
         weather = await get_weather_forecast()
         return json.dumps(weather, ensure_ascii=False)
+
+    elif function_name == "check_important_emails":
+        date_str = args.get("date_str")
+        return await check_important_emails_tool(date_str)
+
+    elif function_name == "get_recent_emails_summary":
+        limit = int(args.get("limit", 10)) if "limit" in args and str(args["limit"]).isdigit() else 10
+        date_str = args.get("date_str")
+        return await get_recent_emails_summary_tool(limit, date_str)
 
     return f"Herramienta '{function_name}' desconocida."
 

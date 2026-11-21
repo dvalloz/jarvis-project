@@ -614,3 +614,65 @@ async def mark_emails_night_summarized(db: AsyncSession, email_ids: List[int]) -
     for email_log in res.scalars().all():
         email_log.night_summary_included = True
     await db.commit()
+
+
+async def get_important_emails(
+    db: AsyncSession,
+    target_date: Optional[date] = None,
+    limit: int = 10
+) -> List[EmailLog]:
+    """
+    Recupera los correos clasificados como importantes/urgentes (excluyendo promocionales).
+    Si se proporciona target_date, filtra por ese día; si no, devuelve los más recientes.
+    """
+    conditions = [
+        EmailLog.is_important == True,
+        EmailLog.is_promotional == False
+    ]
+    if target_date:
+        start_dt = datetime.combine(target_date, datetime.min.time())
+        end_dt = datetime.combine(target_date, datetime.max.time())
+        conditions.extend([
+            EmailLog.received_at >= start_dt,
+            EmailLog.received_at <= end_dt
+        ])
+
+    stmt = (
+        select(EmailLog)
+        .where(and_(*conditions))
+        .order_by(EmailLog.received_at.desc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def get_recent_emails(
+    db: AsyncSession,
+    target_date: Optional[date] = None,
+    limit: int = 10,
+    include_promotional: bool = False
+) -> List[EmailLog]:
+    """
+    Recupera los correos más recientes registrados en la base de datos.
+    Permite filtrar por fecha y excluir promocionales/spam (por defecto excluidos).
+    """
+    conditions = []
+    if not include_promotional:
+        conditions.append(EmailLog.is_promotional == False)
+
+    if target_date:
+        start_dt = datetime.combine(target_date, datetime.min.time())
+        end_dt = datetime.combine(target_date, datetime.max.time())
+        conditions.extend([
+            EmailLog.received_at >= start_dt,
+            EmailLog.received_at <= end_dt
+        ])
+
+    stmt = select(EmailLog)
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    stmt = stmt.order_by(EmailLog.received_at.desc()).limit(limit)
+    res = await db.execute(stmt)
+    return list(res.scalars().all())

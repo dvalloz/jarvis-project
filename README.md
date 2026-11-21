@@ -37,8 +37,8 @@ El sistema está diseñado bajo una arquitectura en capas desacopladas de 5 nive
                                      ▼
  ┌────────────────────────────────────────────────────────────────────────┐
  │                 CAPA 4: CATÁLOGO Y HERRAMIENTAS (TOOLS)                │
- │   tools/registry.py (15 esquemas JSON reconocidos por el LLM)          │
- │   tools/workout_tools.py | tools/task_tools.py                        │
+ │   tools/registry.py (18 esquemas JSON reconocidos por el LLM)          │
+ │   tools/workout_tools.py | tools/task_tools.py | tools/email_tools.py  │
  └─────────────────┬──────────────────────────────────┬───────────────────┘
                    │                                  │
                    ▼                                  ▼
@@ -89,8 +89,9 @@ El motor [bot/scheduler.py](file:///c:/Users/dvdva/Documents/jarvis-project/bot/
 | [database/models.py](file:///c:/Users/dvdva/Documents/jarvis-project/database/models.py) | Modelos ORM SQLAlchemy (`Workout`, `WorkoutLog`, `PillLog`, `SpotifyPaymentTracker`, `OfficeSchedule`, `DeadlineTask`). |
 | [database/crud.py](file:///c:/Users/dvdva/Documents/jarvis-project/database/crud.py) | Funciones de consulta y mutación en BD, algoritmo adaptativo de rutinas, gestión de tareas y actualización de avisos aislados. |
 | [database/seed.py](file:///c:/Users/dvdva/Documents/jarvis-project/database/seed.py) | Inicializador de base de datos. Crea tablas e inserta rutinas base (*Push, Pull, Pierna, Escalada, Full-Body, Cardio*). |
-| [tools/registry.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/registry.py) | Catálogo de 15 esquemas JSON de herramientas expuestas al LLM. |
+| [tools/registry.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/registry.py) | Catálogo de 18 esquemas JSON de herramientas expuestas al LLM. |
 | [tools/calendar_tools.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/calendar_tools.py) | Cliente OAuth2 de Google Calendar (`get_day_events`, `get_week_events`, `create_calendar_event`). |
+| [tools/email_tools.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/email_tools.py) | Cliente Gmail API (v1) metadata-only Zero-PII y herramientas para el chat (`check_important_emails`, `get_recent_emails_summary`). |
 | [tools/workout_tools.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/workout_tools.py) | Wrappers de herramientas para rutinas sugeridas, escalada y resumen mensual. |
 | [tools/task_tools.py](file:///c:/Users/dvdva/Documents/jarvis-project/tools/task_tools.py) | Wrappers de herramientas para toma/consulta de pastilla, Spotify, oficina, creación/modificación/borrado de *deadlines*. |
 | [agent/prompts.py](file:///c:/Users/dvdva/Documents/jarvis-project/agent/prompts.py) | Generador de System Prompt personalizado para David con reglas en castellano y lógica de inferencia. |
