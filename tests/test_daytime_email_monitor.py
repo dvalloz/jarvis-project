@@ -14,8 +14,10 @@ class TestDaytimeEmailMonitor(unittest.IsolatedAsyncioTestCase):
     @patch("bot.scheduler.AsyncSessionLocal")
     @patch("bot.scheduler.create_or_get_email_log")
     @patch("bot.scheduler.mark_email_alert_sent")
+    @patch("bot.scheduler.get_recent_user_corrections")
     async def test_daytime_monitor_alerts_important_email(
         self,
+        mock_get_corrections,
         mock_mark_sent,
         mock_create_log,
         mock_session_local,
@@ -27,26 +29,26 @@ class TestDaytimeEmailMonitor(unittest.IsolatedAsyncioTestCase):
         mock_service = MagicMock()
         mock_get_service.return_value = mock_service
 
+        # Mock de correcciones recientes
+        mock_get_corrections.return_value = []
+
         now = datetime.now(timezone.utc)
-        mock_fetch_unread.return_value = [
-            {
-                "message_id": "msg_important_01",
-                "sender": "banco@santander.es",
-                "subject": "Transferencia urgente pendiente",
-                "received_at": now,
-                "is_promotional": False
-            },
-            {
-                "message_id": "msg_promo_02",
-                "sender": "promociones@tienda.com",
-                "subject": "Ofertas flash del día",
-                "received_at": now,
-                "is_promotional": True
-            }
+        # fetch_unread_emails_metadata se llama dos veces (inbox + promotions)
+        mock_fetch_unread.side_effect = [
+            [
+                {
+                    "message_id": "msg_important_01",
+                    "sender": "banco@santander.es",
+                    "subject": "Transferencia urgente pendiente",
+                    "received_at": now,
+                    "is_promotional": False
+                }
+            ],
+            []  # Promociones vacías
         ]
 
         # Triage returns
-        async def triage_side_effect(mail_data):
+        async def triage_side_effect(mail_data, recent_corrections=None):
             if mail_data["message_id"] == "msg_important_01":
                 return {"is_important": True, "is_promotional": False, "reason": "Notificación bancaria urgente"}
             return {"is_important": False, "is_promotional": True, "reason": "Publicidad"}
@@ -64,21 +66,9 @@ class TestDaytimeEmailMonitor(unittest.IsolatedAsyncioTestCase):
             is_important=True,
             alert_sent=False
         )
-        email_promo = EmailLog(
-            id=2,
-            message_id="msg_promo_02",
-            sender="promociones@tienda.com",
-            subject="Ofertas flash del día",
-            received_at=now,
-            is_promotional=True,
-            is_important=False,
-            alert_sent=False
-        )
 
         async def create_log_side_effect(db, message_id, **kwargs):
-            if message_id == "msg_important_01":
-                return email_important, True
-            return email_promo, True
+            return email_important, True
 
         mock_create_log.side_effect = create_log_side_effect
 

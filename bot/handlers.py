@@ -12,7 +12,7 @@ from database.crud import (
     mark_task_completed, confirm_pill_taken, is_pill_taken_today, set_office_attendance,
     get_or_create_spotify_tracker, update_spotify_friend_payment, log_activity_by_name,
     get_pending_deadline_tasks, mark_deadline_task_completed, get_week_office_dates,
-    clear_office_attendance
+    clear_office_attendance, mark_email_user_corrected
 )
 from tools.calendar_tools import get_day_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
@@ -463,6 +463,19 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
                 )
             else:
                 await query.edit_message_text("✨ ¡No tenías tareas pendientes vencidas hoy! Todo al día.", parse_mode="Markdown")
+
+        elif data.startswith("email_not_important_"):
+            # Bucle de aprendizaje: usuario indica que el email NO era importante
+            email_log_id = int(data.split("email_not_important_")[1])
+            updated = await mark_email_user_corrected(db, email_log_id, was_important=False)
+            if updated:
+                await query.edit_message_text(
+                    f"✅ **Corrección registrada:** El correo de *{updated.sender.split('<')[0].strip()}* "
+                    f"ha sido marcado como **no importante**. Aprenderé de esta corrección para mejorar las próximas clasificaciones.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text("⚠️ No se encontró el correo para corregir. Es posible que ya haya sido procesado.")
 
 def register_handlers(application):
     application.add_handler(CommandHandler("start", start_command))

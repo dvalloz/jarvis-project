@@ -1,0 +1,83 @@
+{
+  "_comentario": "Reglas de clasificación de emails. Edita este fichero para añadir o quitar remitentes sin tocar código.",
+
+  "vip_senders": [
+    "informacion@thebigschool.com",
+    "hola@commitacademy.io",
+    "marti.cristobal@newsletter.commitacademy.io"
+  ],
+
+  "vip_subject_patterns": [
+    "(?i)\\b(reserva|booking|confirmaci[oó]n de reserva|reservaci[oó]n)\\b",
+    "(?i)\\b(vuelo|flight|billete de avi[oó]n|embarque|boarding pass|e-ticket)\\b",
+    "(?i)\\b(hotel|alojamiento|check-in|check-out|habitaci[oó]n reservada)\\b",
+    "(?i)\\b(restaurante|mesa reservada|tu reserva en|cena reservada)\\b",
+    "(?i)\\b(tren|ave|renfe|billete de tren|tu viaje)\\b",
+    "(?i)\\b(alquiler de coche|car rental|rent a car)\\b"
+  ],
+
+  "vip_sender_patterns": [
+    "(?i)@booking\\.com$",
+    "(?i)@airbnb\\.(com|es)$",
+    "(?i)@renfe\\.es$",
+    "(?i)@iberia\\.com$",
+    "(?i)@vueling\\.com$",
+    "(?i)@ryanair\\.com$",
+    "(?i)@easyjet\\.com$",
+    "(?i)noreply@airbnb\\.com$",
+    "(?i)confirmations@booking\\.com$",
+    "(?i)@restaurants\\.michelin\\.com$"
+  ],
+
+  "blocked_senders": [
+    "noreply@github.com",
+    "notifications@github.com",
+    "noreply@linkedin.com",
+    "notifications@linkedin.com",
+    "noreply@slack.com",
+    "feedback@slack.com",
+    "noreply@twitter.com",
+    "notify@twitter.com",
+    "no-reply@accounts.google.com",
+    "noreply@notion.so",
+    "noreply@trello.com",
+    "notifications@trello.com",
+    "noreply@atlassian.com",
+    "noreply@jira.com",
+    "noreply@confluence.com",
+    "noreply@figma.com",
+    "noreply@vercel.com",
+    "noreply@heroku.com",
+    "noreply@circleci.com",
+    "noreply@gitlab.com",
+    "noreply@bitbucket.org",
+    "noreply@npmjs.com",
+    "noreply@stackoverflow.com",
+    "noreply@producthunt.com",
+    "noreply@medium.com",
+    "digest-noreply@quora.com"
+  ],
+
+  "blocked_sender_patterns": [
+    "(?i)no-?reply@.*\\.slack\\.com$",
+    "(?i)alerts@.*\\.atlassian\\.net$",
+    "(?i)@notifications\\.",
+    "(?i)@mailer\\.",
+    "(?i)@digest\\."
+  ],
+
+  "blocked_subject_patterns": [
+    "(?i)^\\[GitHub\\]",
+    "(?i)^\\[GitLab\\]",
+    "(?i)^Daily Digest",
+    "(?i)^Weekly Digest",
+    "(?i)\\bse uni[oó] a tu red\\b",
+    "(?i)\\bte ha enviado un mensaje en LinkedIn\\b",
+    "(?i)\\bha comentado en\\b.*LinkedIn",
+    "(?i)^Resumen semanal de LinkedIn",
+    "(?i)^Tu resumen de actividad de LinkedIn",
+    "(?i)\\b(oferta de empleo|job offer|oportunidad laboral|vacante|puesto de trabajo|nos encanta tu perfil|hemos encontrado trabajos para ti|ofertas que pueden interesarte)\\b",
+    "(?i)\\b(reclutador|recruiter|headhunter|talent acquisition)\\b.*\\b(oportunidad|posici[oó]n|rol|puesto)\\b",
+    "(?i)^Nuevas ofertas de trabajo para"
+  ]
+}
