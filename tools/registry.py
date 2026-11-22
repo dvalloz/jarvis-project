@@ -233,5 +233,41 @@ TOOLS_SCHEMA = [
             "description": "Obtiene los titulares de las 2 o 3 noticias principales destacadas del día en España.",
             "parameters": {"type": "object", "properties": {}}
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_important_emails",
+            "description": "Consulta correos electrónicos importantes o urgentes recibidos hoy (o en una fecha concreta) que requieren atención prioritaria.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_str": {
+                        "type": "string",
+                        "description": "Fecha en formato YYYY-MM-DD para consultar los correos (opcional, por defecto el día de hoy)"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recent_emails_summary",
+            "description": "Obtiene un resumen estructurado de los correos electrónicos recientes recibidos hoy o en los últimos días, agrupando los importantes y secundarios y descartando publicidad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número máximo de correos recientes a listar (opcional, por defecto 10)"
+                    },
+                    "date_str": {
+                        "type": "string",
+                        "description": "Fecha específica YYYY-MM-DD para consultar (opcional, por defecto el día de hoy)"
+                    }
+                }
+            }
+        }
     }
 ]

@@ -239,9 +239,9 @@ Módulo especializado en la clasificación y triage de correos electrónicos baj
 
 ### 4.4 Catálogo y Ejecución de Herramientas (`tools/`)
 
-- **`tools/registry.py`**: Define la lista `TOOLS_SCHEMA` compatible con OpenAPI / JSON Schema conteniendo las 16 herramientas expuestas al LLM.
+- **`tools/registry.py`**: Define la lista `TOOLS_SCHEMA` compatible con OpenAPI / JSON Schema conteniendo las 18 herramientas expuestas al LLM.
 - **`tools/calendar_tools.py`**: Conecta con Google Calendar mediante OAuth2 (`credentials/token.json` y `credentials/credentials.json`) para consultar eventos del día o de la semana completa y crear nuevas citas. Incorpora wrappers asíncronos no bloqueantes (`get_day_events_async`, `get_week_events_async`, `create_calendar_event_async`) mediante `asyncio.to_thread` para preservar la reactividad del event loop de Telegram.
-- **`tools/email_tools.py`**: Conector con Gmail API (v1) bajo scope de solo lectura (`gmail.readonly`). Implementa peticiones exclusivas con `format='metadata'` para obtener cabeceras técnicas (`From`, `Subject`, `Date`, `List-Unsubscribe`, `Precedence`) sin descargar jamás el cuerpo del correo de la red, garantizando privacidad estricta.
+- **`tools/email_tools.py`**: Conector con Gmail API (v1) bajo scope de solo lectura (`gmail.readonly`). Implementa peticiones exclusivas con `format='metadata'` para obtener cabeceras técnicas (`From`, `Subject`, `Date`, `List-Unsubscribe`, `Precedence`) sin descargar jamás el cuerpo del correo de la red, garantizando privacidad estricta. Además, expone las herramientas conversacionales interactivas `check_important_emails_tool` y `get_recent_emails_summary_tool` con sincronización en vivo y consulta a la tabla `email_logs`.
 - **`tools/news_weather_tools.py`**:
   - `get_weather_forecast()`: Consulta la API gratuita de Open-Meteo para obtener la predicción del día en Madrid (temperatura máxima, mínima, probabilidad de lluvia y código de estado WMO con emoji).
   - `get_top_news()`: Descarga y parsea el feed XML/RSS oficial de Google News España para obtener las 2-3 noticias principales del día con su título y fuente.

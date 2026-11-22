@@ -1,13 +1,24 @@
 import os
+import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional, List, Dict, Any
+import pytz
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
+from config.settings import settings
+from database.connection import AsyncSessionLocal
+from database.crud import (
+    create_or_get_email_log,
+    get_important_emails,
+    get_recent_emails
+)
+from agent.email_classifier import triage_email
 
 logger = logging.getLogger(__name__)
 
@@ -191,3 +202,132 @@ def fetch_unread_emails_metadata(service, max_results: int = 15, query: str = "i
     except Exception as e:
         logger.error(f"Error al consultar correos no leídos en Gmail API: {e}")
         return []
+
+
+# ---------------------------------------------------------
+# SINCRONIZACIÓN Y TOOLS CONVERSACIONALES INTERACTIVAS
+# ---------------------------------------------------------
+
+async def sync_latest_emails_metadata(max_results: int = 10) -> int:
+    """
+    Sincroniza metadatos de los últimos correos no leídos desde Gmail API hacia PostgreSQL.
+    Aplica clasificación Zero-PII e inserción idempotente. Si no hay credenciales o falla la conexión,
+    captura el error de forma segura y retorna 0 sin interrumpir la ejecución.
+    """
+    try:
+        service = await asyncio.to_thread(get_gmail_service, interactive=False)
+        unread = await asyncio.to_thread(fetch_unread_emails_metadata, service, max_results, "is:unread")
+        if not unread:
+            return 0
+
+        synced_count = 0
+        async with AsyncSessionLocal() as db:
+            for mail_data in unread:
+                msg_id = mail_data.get("message_id")
+                if not msg_id:
+                    continue
+                triage_res = await triage_email(mail_data)
+                _, created = await create_or_get_email_log(
+                    db=db,
+                    message_id=msg_id,
+                    sender=mail_data.get("sender", ""),
+                    subject=mail_data.get("subject", ""),
+                    received_at=mail_data.get("received_at") or datetime.now(timezone.utc),
+                    is_promotional=triage_res.get("is_promotional", False),
+                    is_important=triage_res.get("is_important", False)
+                )
+                if created:
+                    synced_count += 1
+        return synced_count
+    except Exception as e:
+        logger.warning(f"Sincronización en vivo de emails omitida (credenciales o red no disponibles): {e}")
+        return 0
+
+
+async def check_important_emails_tool(date_str: Optional[str] = None) -> str:
+    """
+    Herramienta interactiva para que el LLM consulte correos importantes/urgentes recibidos hoy
+    o en una fecha concreta bajo la política Zero-PII.
+    """
+    # 1. Intentar sincronización ligera en vivo con Gmail si está disponible
+    await sync_latest_emails_metadata(max_results=10)
+
+    # 2. Parsear fecha objetivo
+    target_dt: Optional[date] = None
+    if date_str and str(date_str).strip():
+        try:
+            target_dt = datetime.strptime(str(date_str).strip(), "%Y-%m-%d").date()
+        except ValueError:
+            target_dt = None
+
+    if not target_dt:
+        tz = pytz.timezone(settings.timezone)
+        target_dt = datetime.now(tz).date()
+
+    async with AsyncSessionLocal() as db:
+        important_emails = await get_important_emails(db, target_date=target_dt, limit=10)
+
+    if not important_emails:
+        return f"No se han registrado correos importantes o urgentes para el día {target_dt.strftime('%d/%m/%Y')}."
+
+    results = []
+    for em in important_emails:
+        sender_clean = em.sender.split("<")[0].strip().strip('"') or em.sender
+        hora_str = em.received_at.strftime("%H:%M") if em.received_at else "Hoy"
+        results.append(f"• [{hora_str}] De: {sender_clean} | Asunto: {em.subject}")
+
+    output_lines = [
+        f"Se encontraron {len(important_emails)} correos importantes para el {target_dt.strftime('%d/%m/%Y')}:",
+        *results
+    ]
+    return "\n".join(output_lines)
+
+
+async def get_recent_emails_summary_tool(limit: int = 10, date_str: Optional[str] = None) -> str:
+    """
+    Herramienta interactiva para obtener un resumen estructurado de los correos relevantes
+    recientes (descartando publicidad/promociones).
+    """
+    # 1. Intentar sincronización en vivo
+    await sync_latest_emails_metadata(max_results=15)
+
+    target_dt: Optional[date] = None
+    if date_str and str(date_str).strip():
+        try:
+            target_dt = datetime.strptime(str(date_str).strip(), "%Y-%m-%d").date()
+        except ValueError:
+            target_dt = None
+
+    async with AsyncSessionLocal() as db:
+        emails = await get_recent_emails(db, target_date=target_dt, limit=limit, include_promotional=False)
+
+    if not emails:
+        fecha_info = f" para el {target_dt.strftime('%d/%m/%Y')}" if target_dt else " recientemente"
+        return f"No se encontraron correos no promocionales registrados{fecha_info}."
+
+    important_list = [e for e in emails if e.is_important]
+    other_list = [e for e in emails if not e.is_important]
+
+    lines = []
+    if target_dt:
+        lines.append(f"Resumen de correos del {target_dt.strftime('%d/%m/%Y')} (Total: {len(emails)}):")
+    else:
+        lines.append(f"Resumen de los últimos {len(emails)} correos recibidos:")
+
+    if important_list:
+        lines.append("\n🔴 Correos Importantes / Prioritarios:")
+        for e in important_list:
+            sender_clean = e.sender.split("<")[0].strip().strip('"') or e.sender
+            hora = e.received_at.strftime("%H:%M") if e.received_at else ""
+            hora_prefix = f"[{hora}] " if hora else ""
+            lines.append(f"• {hora_prefix}{sender_clean}: {e.subject}")
+
+    if other_list:
+        lines.append("\nℹ️ Otros correos relevantes:")
+        for e in other_list:
+            sender_clean = e.sender.split("<")[0].strip().strip('"') or e.sender
+            hora = e.received_at.strftime("%H:%M") if e.received_at else ""
+            hora_prefix = f"[{hora}] " if hora else ""
+            lines.append(f"• {hora_prefix}{sender_clean}: {e.subject}")
+
+    return "\n".join(lines)
