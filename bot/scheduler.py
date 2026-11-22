@@ -12,7 +12,8 @@ from database.crud import (
     mark_office_night_notified, get_pending_deadline_tasks, get_monthly_workout_summary,
     update_deadline_last_reminded, get_weekly_office_decision,
     create_or_get_email_log, mark_email_alert_sent,
-    get_unsummarized_emails_for_date, mark_emails_night_summarized
+    get_unsummarized_emails_for_date, mark_emails_night_summarized,
+    get_recent_user_corrections
 )
 from tools.calendar_tools import get_day_events_async, get_week_events_async
 from tools.news_weather_tools import get_weather_forecast, get_top_news
@@ -369,12 +370,19 @@ async def nightly_checks_job(app):
         # Sincronización nocturna previa para capturar emails de última hora
         try:
             service = await asyncio.to_thread(get_gmail_service, interactive=False)
+            # Sincronizar bandeja de entrada y también Promociones (para rescatar VIPs)
             latest_unread = await asyncio.to_thread(fetch_unread_emails_metadata, service, 15, "is:unread")
-            if latest_unread:
-                for mail_data in latest_unread:
+            promo_unread = await asyncio.to_thread(
+                fetch_unread_emails_metadata, service, 10, "is:unread category:promotions"
+            )
+            all_emails = (latest_unread or []) + (promo_unread or [])
+            # Cargar correcciones del usuario para enriquecer el clasificador (Capa 4)
+            recent_corrections = await get_recent_user_corrections(db, limit=10)
+            if all_emails:
+                for mail_data in all_emails:
                     msg_id = mail_data.get("message_id")
                     if msg_id:
-                        triage_res = await triage_email(mail_data)
+                        triage_res = await triage_email(mail_data, recent_corrections=recent_corrections)
                         await create_or_get_email_log(
                             db=db,
                             message_id=msg_id,
@@ -429,6 +437,8 @@ async def daytime_email_monitor_job(app):
     """
     Monitor diurno que inspecciona la bandeja de entrada periódicamente mediante Gmail API
     bajo política Zero-PII, clasifica con IA basada en metadatos y emite alertas push a Telegram.
+    Incluye emails de Promociones para rescatar VIPs que Gmail clasifica erróneamente,
+    y un botón [❌ No era importante] para el bucle de aprendizaje.
     """
     logger.info("Ejecutando job de monitor diurno de emails...")
     try:
@@ -443,17 +453,29 @@ async def daytime_email_monitor_job(app):
         logger.warning(f"Error al listar emails no leídos de Gmail: {e}")
         return
 
-    if not unread_emails:
+    # También revisar Promociones para rescatar VIPs
+    try:
+        promo_emails = await asyncio.to_thread(
+            fetch_unread_emails_metadata, service, 10, "is:unread category:promotions"
+        )
+    except Exception:
+        promo_emails = []
+
+    all_emails = (unread_emails or []) + (promo_emails or [])
+    if not all_emails:
         return
 
     async with AsyncSessionLocal() as db:
-        for mail_data in unread_emails:
+        # Cargar correcciones del usuario para enriquecer Capa 4
+        recent_corrections = await get_recent_user_corrections(db, limit=10)
+
+        for mail_data in all_emails:
             msg_id = mail_data.get("message_id")
             if not msg_id:
                 continue
 
-            # 1. Triage del correo (Zero-PII: cabeceras locales + LLM metadata-only)
-            triage_result = await triage_email(mail_data)
+            # 1. Triage del correo (Zero-PII: pipeline multicapa)
+            triage_result = await triage_email(mail_data, recent_corrections=recent_corrections)
             is_important = triage_result.get("is_important", False)
             is_promotional = triage_result.get("is_promotional", False)
             reason = triage_result.get("reason", "")
@@ -470,9 +492,12 @@ async def daytime_email_monitor_job(app):
             )
 
             # 3. Si es importante y aún no se ha alertado, emitir notificación enriquecida en Telegram
-            if email_log.is_important and not email_log.alert_sent and not email_log.is_promotional:
+            if email_log.is_important and not email_log.alert_sent:
                 gmail_url = f"https://mail.google.com/mail/u/0/#inbox/{email_log.message_id}"
-                keyboard = [[InlineKeyboardButton("📬 Abrir en Gmail", url=gmail_url)]]
+                keyboard = [
+                    [InlineKeyboardButton("📬 Abrir en Gmail", url=gmail_url)],
+                    [InlineKeyboardButton("❌ No era importante", callback_data=f"email_not_important_{email_log.id}")]
+                ]
 
                 alert_text = (
                     f"🚨 **CORREO IMPORTANTE DETECTADO**\n\n"

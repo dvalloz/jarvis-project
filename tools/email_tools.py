@@ -16,7 +16,8 @@ from database.connection import AsyncSessionLocal
 from database.crud import (
     create_or_get_email_log,
     get_important_emails,
-    get_recent_emails
+    get_recent_emails,
+    get_recent_user_corrections
 )
 from agent.email_classifier import triage_email
 
@@ -222,11 +223,13 @@ async def sync_latest_emails_metadata(max_results: int = 10) -> int:
 
         synced_count = 0
         async with AsyncSessionLocal() as db:
+            # Cargar correcciones recientes del usuario para enriquecer el clasificador
+            recent_corrections = await get_recent_user_corrections(db, limit=10)
             for mail_data in unread:
                 msg_id = mail_data.get("message_id")
                 if not msg_id:
                     continue
-                triage_res = await triage_email(mail_data)
+                triage_res = await triage_email(mail_data, recent_corrections=recent_corrections)
                 _, created = await create_or_get_email_log(
                     db=db,
                     message_id=msg_id,

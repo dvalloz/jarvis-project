@@ -92,4 +92,7 @@ class EmailLog(Base):
     is_important: Mapped[bool] = mapped_column(Boolean, default=False)
     alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     night_summary_included: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Campo de aprendizaje: True = usuario confirmó que era importante,
+    # False = usuario indicó que NO era importante. None = sin corrección.
+    user_corrected: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

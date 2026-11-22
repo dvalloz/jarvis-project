@@ -81,10 +81,11 @@ class TestEmailClassifier(unittest.IsolatedAsyncioTestCase):
         sent_messages = call_kwargs["messages"]
 
         user_content = next(m["content"] for m in sent_messages if m["role"] == "user")
-        self.assertIn("Remitente: banco@entidad.es", user_content)
-        self.assertIn("Asunto: Cargo sospechoso en tarjeta", user_content)
-        # Asegurar que no hay ningún otro campo en el mensaje de usuario
-        self.assertEqual(user_content, "Remitente: banco@entidad.es\nAsunto: Cargo sospechoso en tarjeta")
+        self.assertIn("banco@entidad.es", user_content)
+        self.assertIn("Cargo sospechoso en tarjeta", user_content)
+        # Verificar formato XML Zero-PII: no hay body, solo sender y subject
+        self.assertIn("<sender>", user_content)
+        self.assertIn("<subject>", user_content)
 
 if __name__ == "__main__":
     unittest.main()

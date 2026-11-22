@@ -676,3 +676,65 @@ async def get_recent_emails(
     stmt = stmt.order_by(EmailLog.received_at.desc()).limit(limit)
     res = await db.execute(stmt)
     return list(res.scalars().all())
+
+
+
+async def mark_email_user_corrected(
+    db: AsyncSession,
+    email_log_id: int,
+    was_important: bool
+) -> Optional[EmailLog]:
+    """
+    Registra la corrección del usuario sobre la clasificación de un correo.
+    Actualiza el campo user_corrected para usarlo como few-shot en el LLM.
+
+    Args:
+        db: Sesión de base de datos asíncrona.
+        email_log_id: ID del EmailLog a corregir.
+        was_important: True si el usuario confirma que era importante,
+                       False si indica que NO era importante.
+
+    Returns:
+        El EmailLog actualizado, o None si no se encuentra.
+    """
+    stmt = select(EmailLog).where(EmailLog.id == email_log_id)
+    res = await db.execute(stmt)
+    email_log = res.scalar_one_or_none()
+    if email_log:
+        email_log.user_corrected = was_important
+        await db.commit()
+        await db.refresh(email_log)
+    return email_log
+
+
+async def get_recent_user_corrections(
+    db: AsyncSession,
+    limit: int = 10
+) -> List[dict]:
+    """
+    Recupera las últimas correcciones del usuario para usarlas como few-shot
+    en el prompt del LLM (Capa 4). Solo retorna registros con user_corrected != None.
+
+    Args:
+        db: Sesión de base de datos asíncrona.
+        limit: Número máximo de correcciones a recuperar.
+
+    Returns:
+        Lista de dicts con 'sender', 'subject', 'was_important'.
+    """
+    stmt = (
+        select(EmailLog)
+        .where(EmailLog.user_corrected.isnot(None))
+        .order_by(EmailLog.created_at.desc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    rows = res.scalars().all()
+    return [
+        {
+            "sender": row.sender,
+            "subject": row.subject,
+            "was_important": row.user_corrected
+        }
+        for row in rows
+    ]

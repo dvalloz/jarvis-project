@@ -200,7 +200,7 @@ Establece el pool de conexiones asíncronas con PostgreSQL mediante `create_asyn
 5. **`OfficeSchedule` (`office_schedules`)**: Asistencia presencial a la oficina (`id`, `schedule_date`, `will_attend`, `user_notified_night_before`).
 6. **`DeadlineTask` (`deadline_tasks`)**: Tareas puntuales con fecha y hora límite (`id`, `title`, `deadline`, `is_done`, `last_reminded_at`).
 7. **`RecurringTask` (`recurring_tasks`)**: Tareas periódicas configurables.
-8. **`EmailLog` (`email_logs`)**: Registro de trazabilidad y deduplicación de correos entrantes de Gmail (`id`, `message_id`, `sender`, `subject`, `received_at`, `is_promotional`, `is_important`, `alert_sent`, `night_summary_included`). Permite desacoplar el procesamiento diurno y nocturno bajo arquitectura Zero-PII sin almacenar cuerpos ni contenidos sensibles.
+8. **`EmailLog` (`email_logs`)**: Registro de trazabilidad y deduplicación de correos entrantes de Gmail (`id`, `message_id`, `sender`, `subject`, `received_at`, `is_promotional`, `is_important`, `alert_sent`, `night_summary_included`, `user_corrected`). Permite desacoplar el procesamiento diurno y nocturno bajo arquitectura Zero-PII sin almacenar cuerpos ni contenidos sensibles. El campo `user_corrected` (nullable bool) registra correcciones del usuario para el bucle de aprendizaje del clasificador.
 
 #### `database/seed.py`
 Contiene la función `init_models()` que ejecuta automáticamente en cada inicio:
@@ -230,10 +230,21 @@ Contiene la función `run_agent(user_message, enable_tools=True)`:
 - Pasa el resultado final por `clean_think_tags()` para eliminar de forma segura monólogos internos `<think>` y bloques `<tool_call>` sin descartar listas numeradas ni viñetas.
 
 #### `agent/email_classifier.py`
-Módulo especializado en la clasificación y triage de correos electrónicos bajo el principio **Zero-PII**:
-- **Filtro Determinista Local:** Si las cabeceras del correo indican publicidad (`List-Unsubscribe`, `Precedence: bulk` o etiquetas promocionales de Gmail), el correo se descarta de forma instantánea sin realizar llamadas a APIs externas.
-- **Inferencia Metadata-Only:** En correos potencialmente importantes, envía al LLM (Groq API) **únicamente el remitente y el asunto** en formato JSON. Nunca se expone el cuerpo del correo.
-- **Respaldo Heurístico de Alta Disponibilidad:** `evaluate_email_importance_heuristic()` evalúa palabras clave críticas ante caídas de red o límites de cuota de la IA para garantizar que ninguna notificación urgente se pierda.
+Módulo especializado en la clasificación y triage de correos electrónicos bajo el principio **Zero-PII**. Implementa un **pipeline de 4 capas en cascada** que reduce las llamadas al LLM en ~60-70%:
+
+- **Capa 1 — Filtro determinista (existente):** Si las cabeceras del correo indican publicidad (`List-Unsubscribe`, `Precedence: bulk` o etiquetas promocionales de Gmail), el correo se descarta de forma instantánea. Los emails de Promociones pasan igualmente por Capa 2 para rescatar VIPs.
+- **Capa 2 — Reglas duras (NUEVO):** Aplica whitelist VIP y blacklist de remitentes/asuntos leídas desde `config/email_rules.json`. Un remitente VIP siempre es importante; uno bloqueado siempre es descartado; sin ninguna llamada al LLM. Incluye patrones de reservas (vuelos, hoteles, restaurantes) y bloqueo de notificaciones de apps y ofertas de empleo.
+- **Capa 3 — Heurística bilingüe ES+EN (NUEVO):** Evalúa señales de alta confianza (regex de importes monetarios, fechas límite, terminología bancaria/fiscal/médica en español e inglés). Con ≥2 señales, clasifica sin LLM. Detecta y descarta automáticamente códigos OTP/2FA.
+- **Capa 4 — LLM enriquecido (MEJORADO):** Solo los emails genuinamente ambiguos llegan aquí. Usa un prompt con contexto personal de David, formato XML hardening y las últimas 10 correcciones del usuario como few-shot examples. Fallback heurístico de alta disponibilidad si el LLM no está disponible.
+
+**Bucle de aprendizaje:** El campo `user_corrected` en `EmailLog` almacena las correcciones del usuario (vía botón `[❌ No era importante]` en las alertas de Telegram). Estas correcciones se inyectan como few-shot en Capa 4 para mejorar clasificaciones futuras.
+
+#### `config/email_rules.json`
+Fichero de configuración editable sin tocar código con:
+- `vip_senders`: Lista de emails exactos que siempre son importantes (thebigschool, commitacademy…).
+- `vip_sender_patterns` / `vip_subject_patterns`: Regex de servicios de reservas (booking, airbnb, renfe…).
+- `blocked_senders`: Lista de emails a silenciar (GitHub, LinkedIn, Slack…).
+- `blocked_sender_patterns` / `blocked_subject_patterns`: Regex para notificaciones de apps y ofertas de empleo.
 
 ---
 
@@ -269,7 +280,7 @@ Almacena los trabajos programados con `APScheduler`:
 4. **`gym_reminder_job` (20:00 PM L-V)**: Recordatorio del entrenamiento correspondiente hoy según la rotación inteligente.
 5. **`nightly_gym_checkin_job` (22:00 PM L-V)**: Check-in de confirmación de entrenamiento (Hecho, Escalada o Descanso).
 6. **`nightly_checks_job` (23:00 PM)**: Tercer aviso de pastilla, recordatorio de oficina para el día siguiente, control del Bizum de Spotify (a partir del día 16 de cada mes), resumen consolidado de correos del día (Zero-PII) y resumen mensual el último día del mes.
-7. **`daytime_email_monitor_job` (cada 15 minutos, 08:00 - 20:45)**: Monitoreo continuo de la bandeja de entrada vía Gmail API. Clasifica mensajes no leídos con el motor Zero-PII (`agent/email_classifier.py`), registra en `EmailLog` para deduplicación y envía notificaciones push inmediatas con botón de acceso directo a Gmail en caso de correos prioritarios.
+7. **`daytime_email_monitor_job` (cada 15 minutos, 08:00 - 20:45)**: Monitoreo continuo de la bandeja de entrada y de la carpeta Promociones vía Gmail API. Clasifica mensajes no leídos con el motor Zero-PII multicapa (`agent/email_classifier.py`), inyecta correcciones recientes del usuario en el clasificador (Capa 4), registra en `EmailLog` para deduplicación y envía notificaciones push con botón de acceso a Gmail y botón `[❌ No era importante]` para el bucle de aprendizaje.
 
 
 ---
